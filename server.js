@@ -109,7 +109,7 @@ function freshRoom() {
   return {
     phase: 'lobby', // lobby | round | review | classroom | gameover
     hostId: null,
-    minPlayers: 2,
+    minPlayers: 2, // co dinh 2, khong chinh tren giao dien
     round: 0,
     maze: null, // array of strings '#'/'.
     treasure: null, // {x,y}
@@ -428,12 +428,6 @@ function handleAnswer(p, idx) {
 
 function handleHost(p, action, value) {
   if (p.id !== room.hostId) return;
-  if (action === 'min') {
-    const v = Number(value);
-    if (Number.isFinite(v)) room.minPlayers = Math.max(1, Math.min(100, Math.round(v)));
-    broadcast(roomInfo());
-    return;
-  }
   if (action === 'start') {
     if (room.phase !== 'lobby') return;
     if (countPlayers() < room.minPlayers) return;
@@ -578,7 +572,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    const p = results_getPlayer(ws);
+    const p = players.get(ws.playerId); // socket chua join -> undefined, bo qua
     if (!p) return;
     players.delete(p.id);
     const wasHost = p.id === room.hostId;

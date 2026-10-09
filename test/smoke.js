@@ -27,11 +27,11 @@ async function walk(c,round){let path=route(round);for(let i=1;i<path.length;i++
   const late=await connect('Late',port);assert(!late.init.me.touched);assert(!late.init.players.find(p=>p.id===late.init.id).spawned,'late joins wait');
  });
  await run(3112,100,async port=>{
-  const host=await connect('Teacher',port),p=await connect('Student',port);host.send({t:'host',action:'min',value:1});host.send({t:'host',action:'start'});
+  const host=await connect('Teacher',port),p=await connect('Student',port),p2=await connect('Student2',port);host.send({t:'host',action:'start'});
   for(let n=1;n<=10;n++){
    const end=await until(()=>host.get('roundEnd')?.round===n&&host.get('roundEnd'),'timeout round '+n);assert.equal(end.phase,'classroom');host.send({t:'host',action:'next'});await sleep(15);assert.equal(host.get('round').round,n,'must reveal first');host.send({t:'host',action:'reveal',value:0});await until(()=>host.inbox.filter(m=>m.t==='reveal').length===n,'reveal');host.send({t:'host',action:'next'});
   }
-  const final=await until(()=>host.get('gameover'),'final');assert.equal(final.leaderboard.length,1);assert.equal(final.leaderboard[0].score,0);host.send({t:'host',action:'again'});await until(()=>host.get('room')?.phase==='lobby','reset');
+  const final=await until(()=>host.get('gameover'),'final');assert.equal(final.leaderboard.length,2);assert.equal(final.leaderboard[0].score,0);host.send({t:'host',action:'again'});await until(()=>host.get('room')?.phase==='lobby','reset');
  });
  console.log('server OK: roles, movement validation, first arrival, personal hints, freeze, five correct, new maze, late join, 10 rounds, reveal gating, final and reset');
 })().catch(e=>{console.error(e);process.exitCode=1});

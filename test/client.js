@@ -88,6 +88,7 @@ function makeElement(tag) {
 }
 
 const drawnLabels = [];
+let ellipseCalls = 0; // drawGem dung ellipse(): dem de biet ruong co duoc ve hay khong
 function makeCtx() {
   const gradient = { addColorStop() {} };
   const noop = () => {};
@@ -113,7 +114,7 @@ function makeCtx() {
     lineTo: noop,
     arcTo: noop,
     arc: noop,
-    ellipse: noop,
+    ellipse: () => { ellipseCalls++; },
     fill: noop,
     stroke: noop,
     fillText: text => drawnLabels.push(text),
@@ -277,15 +278,29 @@ async function main() {
   drawnLabels.length=0; pump(2);
   assert(drawnLabels.includes('Tester'),'self remains visible');
   assert(!els.treasureCompass.hidden,'player sees treasure direction');
-  assert.equal(els.compassArrow.style.transform,'rotate(90deg)','treasure to right');
+  // arrow orbits the player: offset from the player's centre points at the chest, rotation matches
+  const arrow = () => {
+    const cx = parseFloat(els.treasureCompass.style.left), cy = parseFloat(els.treasureCompass.style.top);
+    return { dx: parseFloat(els.compassArrow.style.left), dy: parseFloat(els.compassArrow.style.top), cx, cy, rot: els.compassArrow.style.transform };
+  };
+  let a = arrow();
+  assert(a.dx > 0 && Math.abs(a.dy) < 1e-6 && a.rot.includes('rotate(90deg)'), 'treasure to right: arrow east of player');
   ws.feed({...round, treasure:{x:1.5,y:3.5}}); pump(2);
-  assert.equal(els.compassArrow.style.transform,'rotate(180deg)','treasure below');
+  a = arrow(); assert(Math.abs(a.dx) < 1e-6 && a.dy > 0 && a.rot.includes('rotate(180deg)'), 'treasure below: arrow south');
   ws.feed({...round,spawn:{x:5.5,y:1.5},treasure:{x:1.5,y:1.5}}); pump(2);
-  assert.equal(els.compassArrow.style.transform,'rotate(270deg)','treasure to left');
+  a = arrow(); assert(a.dx < 0 && Math.abs(a.dy) < 1e-6 && a.rot.includes('rotate(270deg)'), 'treasure to left: arrow west');
   ws.feed({...round,spawn:{x:1.5,y:3.5},treasure:{x:1.5,y:1.5}}); pump(2);
-  assert.equal(els.compassArrow.style.transform,'rotate(0deg)','treasure above');
+  a = arrow(); assert(Math.abs(a.dx) < 1e-6 && a.dy < 0 && a.rot.includes('rotate(0deg)'), 'treasure above: arrow north');
+  assert(a.cx > 0 && a.cy > 0, 'compass container follows the player on screen');
   ws.feed(round); pump(2);
   assert(!drawnLabels.includes('HiddenOpponent'),'other players hidden even at same position');
+  // chest is drawn inside the view radius even behind a wall, and hidden beyond it
+  const wallRound = {...round, maze:['#########','#..#....#','#.......#','#########'], treasure:{x:4.5,y:1.5}};
+  ws.feed(wallRound); ellipseCalls = 0; pump(2);
+  assert(ellipseCalls > 0, 'chest 3 tiles away behind a wall is drawn');
+  ws.feed({...wallRound, treasure:{x:7.5,y:2.5}}); ellipseCalls = 0; pump(2);
+  assert.equal(ellipseCalls, 0, 'chest beyond view radius stays hidden');
+  ws.feed(round); pump(2);
   press('ArrowRight'); pump(10); release('ArrowRight'); pump(6);
   const stopped = ws.last('state').x;
   assert(stopped > 1.5 && stopped < 3, 'continuous, non-grid movement');

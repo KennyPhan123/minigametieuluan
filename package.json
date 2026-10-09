@@ -1,0 +1,14 @@
+{
+  "name": "minigametieuluan",
+  "version": "1.0.0",
+  "description": "Me cung Hasaki - 10 vong thi dau, chu phong quan sat, truot me cung va tra loi cau hoi",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/maze.js && node test/client.js && node test/smoke.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

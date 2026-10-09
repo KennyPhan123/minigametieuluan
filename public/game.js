@@ -41,6 +41,8 @@
   const touchLayer = $('touchLayer');
   const hudRound = $('hudRound');
   const hudTimer = $('hudTimer');
+  const treasureCompass = $('treasureCompass');
+  const compassArrow = $('compassArrow');
   const leaderTitle = $('leaderTitle');
   const leaderboardEl = $('leaderboard');
   const hostFeed = $('hostFeed');
@@ -1371,7 +1373,18 @@
     return true;
   }
 
+  function updateCompass() {
+    const p = myEntry();
+    treasureCompass.hidden = S.role === 'host' || S.phase !== 'round' || !p?.spawned || !S.treasure;
+    if (treasureCompass.hidden) return;
+    const dx = S.treasure.x - me.x, dy = S.treasure.y - me.y;
+    // CSS arrow points up; canvas/world y grows downward.
+    const degrees = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+    compassArrow.style.transform = `rotate(${degrees}deg)`;
+  }
+
   function render(now) {
+    updateCompass();
     const w = S.viewW;
     const h = S.viewH;
     ctx.fillStyle = '#ffffff';

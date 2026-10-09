@@ -276,6 +276,15 @@ async function main() {
   ws.feed(round);
   drawnLabels.length=0; pump(2);
   assert(drawnLabels.includes('Tester'),'self remains visible');
+  assert(!els.treasureCompass.hidden,'player sees treasure direction');
+  assert.equal(els.compassArrow.style.transform,'rotate(90deg)','treasure to right');
+  ws.feed({...round, treasure:{x:1.5,y:3.5}}); pump(2);
+  assert.equal(els.compassArrow.style.transform,'rotate(180deg)','treasure below');
+  ws.feed({...round,spawn:{x:5.5,y:1.5},treasure:{x:1.5,y:1.5}}); pump(2);
+  assert.equal(els.compassArrow.style.transform,'rotate(270deg)','treasure to left');
+  ws.feed({...round,spawn:{x:1.5,y:3.5},treasure:{x:1.5,y:1.5}}); pump(2);
+  assert.equal(els.compassArrow.style.transform,'rotate(0deg)','treasure above');
+  ws.feed(round); pump(2);
   assert(!drawnLabels.includes('HiddenOpponent'),'other players hidden even at same position');
   press('ArrowRight'); pump(10); release('ArrowRight'); pump(6);
   const stopped = ws.last('state').x;
@@ -320,6 +329,7 @@ async function main() {
   drawnLabels.length=0;
   ws.feed({...round, round:2, questionIdx:1}); pump(3);
   assert(drawnLabels.includes('HiddenOpponent'),'host still sees participants');
+  assert(els.treasureCompass.hidden,'host has full map, no personal compass');
   ws.feed({t:'roundEnd',phase:'classroom',round:2,questionIdx:1,correctCount:0,leaderboard:[]});
   assert(!els.classroomOverlay.hidden);
   assert(els.btnNextClass.hidden);

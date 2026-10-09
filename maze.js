@@ -172,3 +172,34 @@ function tileToCell(x, y) {
 }
 
 module.exports = { mulberry32, shuffle, generateMaze, edgeCells, cellCenter, tileToCell };
+
+/** Random shared start and treasure, separated spatially and by walkable route. */
+function pickRoundPositions(grid, rng) {
+  const cells = [];
+  for (let y = 1; y < grid.length; y += 2)
+    for (let x = 1; x < grid[0].length; x += 2)
+      if (grid[y][x] === 0) cells.push({ x, y });
+  for (const goal of shuffle(cells.slice(), rng)) {
+    const distance = grid.map(row => row.map(() => -1));
+    distance[goal.y][goal.x] = 0;
+    const queue = [goal];
+    for (let i = 0; i < queue.length; i++) {
+      const p = queue[i];
+      for (const [dx, dy] of DIRS4) {
+        const x = p.x + dx, y = p.y + dy;
+        if (grid[y]?.[x] !== 0 || distance[y][x] !== -1) continue;
+        distance[y][x] = distance[p.y][p.x] + 1;
+        queue.push({ x, y });
+      }
+    }
+    const choices = cells.filter(p => Math.hypot(p.x-goal.x, p.y-goal.y) >= 12 &&
+      distance[p.y][p.x] >= 30 && distance[p.y][p.x] <= 70);
+    if (choices.length) {
+      const start = choices[Math.floor(rng() * choices.length)];
+      return { spawn: {x:start.x+0.5,y:start.y+0.5},
+        treasure: {x:goal.x+0.5,y:goal.y+0.5}, routeLength:distance[start.y][start.x] };
+    }
+  }
+  throw new Error('Maze cannot provide sufficiently separated round positions');
+}
+module.exports.pickRoundPositions = pickRoundPositions;

@@ -5,7 +5,7 @@
  *
  * Phong chu: nguoi vao dau tien = chu phong (xem map toan bo).
  * Nguoi choi vao phong cho, chu phong bat dau khi du so luong.
- * Moi vong 60s: spawn chung giua canh duoi, ruong giua canh tren, 1 cau hoi.
+ * Moi vong 60s: spawn chung ngau nhien cach xa ruong ngau nhien, 1 cau hoi.
  * - Nguoi dau tui dot ruong: +diem toc do + tu dong loai 2 dap an sai
  * - Tra loi sai: -30 diem, bi freeze 7s, dap an bi gach (chia se moi nguoi)
  * - Tra loi dung: +diem, cho het vong
@@ -18,12 +18,12 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const QUESTIONS = require('./public/questions.js');
-const { mulberry32, shuffle, generateMaze, cellCenter } = require('./maze');
+const { mulberry32, shuffle, generateMaze, pickRoundPositions } = require('./maze');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-const COLS = 15; // 31 x 23 tiles; common bottom entrance and top goal
+const COLS = 15; // 31 x 23 tiles; random, distant shared start and treasure
 const ROWS = 11;
 const GRID_W = COLS * 2 + 1;
 const GRID_H = ROWS * 2 + 1;
@@ -113,6 +113,7 @@ function freshRoom() {
     round: 0,
     maze: null, // array of strings '#'/'.
     treasure: null, // {x,y}
+    spawn: null, // one shared randomized spawn for this round
     questionIdx: -1,
     endsAt: 0,
     roundStartedAt: 0,
@@ -229,7 +230,7 @@ function assignSpawn(p) {
     p.spawned = false; // chu phong la nguoi dieu hanh, khong choi
     return;
   }
-  const spot = cellCenter(Math.floor(COLS / 2), ROWS - 1);
+  const spot = room.spawn;
   p.x = spot.x;
   p.y = spot.y;
   p.spawned = true;
@@ -243,7 +244,9 @@ function startRound(n) {
   const rng = mulberry32(room.seedCounter);
   const gen = generateMaze(COLS, ROWS, rng);
   room.maze = gen.grid.map((row) => row.map((v) => (v === 1 ? '#' : '.')).join(''));
-  const center = cellCenter(Math.floor(COLS / 2), 0);
+  const positions = pickRoundPositions(gen.grid, rng);
+  room.spawn = positions.spawn;
+  const center = positions.treasure;
   room.treasure = center;
   room.questionIdx = n - 1;
   room.touchedBy = null;

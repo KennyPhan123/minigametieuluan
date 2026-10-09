@@ -17,7 +17,7 @@
         <h1 class="start-title">MÊ CUNG<br />HASAKI</h1>
         <div class="start-rule"></div>
         <p class="start-desc">
-          10 vòng chơi, mỗi vòng 60 giây. Tất cả xuất phát ở giữa cạnh dưới, tìm rương ở lối ra giữa cạnh trên. Bạn chỉ thấy nhân vật của mình — ai tới trước, trả lời đúng nhanh hơn sẽ được nhiều điểm hơn.
+          10 vòng chơi, mỗi vòng 60 giây. Tất cả xuất phát chung một vị trí ngẫu nhiên, cách xa rương. Theo mũi tên chỉ hướng rương để tự tìm đường. Bạn chỉ thấy nhân vật của mình — ai tới trước, trả lời đúng nhanh hơn sẽ được nhiều điểm hơn.
         </p>
         <ol class="start-how">
           <li><span class="num">01</span> Người vào đầu tiên là chủ phòng (xem map, điều khiển vòng chơi)</li>
@@ -83,6 +83,11 @@
         <div class="hud-top-left">
           <div class="hud-round" id="hudRound">VÒNG 1 / 10</div>
           <div class="hud-timer" id="hudTimer">1:00</div>
+        </div>
+
+        <div id="treasureCompass" class="treasure-compass" hidden aria-label="Hướng rương">
+          <span id="compassArrow" class="compass-arrow" aria-hidden="true"></span>
+          <span>HƯỚNG RƯƠNG</span>
         </div>
 
         <!-- bang xep hang (ca host va player deu thay) -->

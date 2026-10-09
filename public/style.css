@@ -1215,3 +1215,16 @@ input {
   width: 42px; height: 42px; margin: -21px 0 0 -21px;
   border-radius: 50%; background: #111; border: 2px solid white;
 }
+
+.treasure-compass {
+  position: absolute; left: 12px; top: calc(88px + env(safe-area-inset-top));
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 12px; border: 1.5px solid #111; border-radius: 10px;
+  background: rgba(255,255,255,.96); color: #111;
+  font: 700 9px var(--mono); letter-spacing: .08em;
+}
+.compass-arrow {
+  display: block; width: 24px; height: 28px; background: #111;
+  clip-path: polygon(50% 0, 100% 48%, 64% 48%, 64% 100%, 36% 100%, 36% 48%, 0 48%);
+  transform-origin: center;
+}

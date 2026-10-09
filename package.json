@@ -1,0 +1,14 @@
+{
+  "name": "minigametieuluan",
+  "version": "1.0.0",
+  "description": "Me cung Hasaki - tro tim 10 kho bau va tra loi 10 cau hoi (web game online)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/maze.js && node test/client.js && node test/smoke.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

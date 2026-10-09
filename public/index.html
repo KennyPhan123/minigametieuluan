@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Me cung Hasaki - tim 10 kho bau va tra loi 10 cau hoi" />
+    <link rel="icon" href="data:," />
+    <title>Me cung Hasaki</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Man hinh bat dau -->
+    <div id="startScreen" class="start-screen">
+      <div class="start-card">
+        <div class="start-kicker">MINI GAME</div>
+        <h1 class="start-title">MÊ CUNG<br />HASAKI</h1>
+        <div class="start-rule"></div>
+        <p class="start-desc">
+          10 kho báu giấu trong mê cung cửa hàng. Tìm và trả lời đúng 10 câu hỏi để trở thành người thắng.
+        </p>
+        <ol class="start-how">
+          <li><span class="num">01</span> Di chuyển tìm kho báu trong mê cung</li>
+          <li><span class="num">02</span> Chạm kho báu và trả lời câu hỏi</li>
+          <li><span class="num">03</span> Tìm đủ 10 kho báu trước các người chơi khác</li>
+        </ol>
+        <form id="startForm" autocomplete="off">
+          <input id="nameInput" type="text" maxlength="16" placeholder="Nhập tên của bạn" autocomplete="off" spellcheck="false" />
+          <button id="startBtn" type="submit">VÀO GAME</button>
+        </form>
+        <div id="startError" class="start-error" hidden></div>
+        <div class="start-hint">
+          Điện thoại: joystick ảo &nbsp;·&nbsp; Máy tính: WASD / phím mũi tên
+        </div>
+      </div>
+    </div>
+
+    <!-- Game -->
+    <div id="game" class="game" hidden>
+      <canvas id="gameCanvas"></canvas>
+      <div id="touchLayer" class="touch-layer"></div>
+
+      <div id="hud" class="hud">
+        <!-- Tien do -->
+        <div class="hud-top-left">
+          <div class="hud-label">KHO BÁU</div>
+          <div class="progress-row">
+            <div id="pips" class="pips"></div>
+            <div id="progressText" class="progress-text">0/10</div>
+          </div>
+        </div>
+
+        <!-- Bang xep hang -->
+        <div class="hud-top-right">
+          <div id="onlineChip" class="online-chip">1 NGƯỜI CHƠI</div>
+          <ol id="leaderboard" class="leaderboard"></ol>
+          <button id="restartBtn" class="restart-btn" type="button">VÁN MỚI</button>
+        </div>
+
+        <!-- Ban do nho -->
+        <div class="minimap-wrap">
+          <div class="minimap-label">BẢN ĐỒ</div>
+          <canvas id="minimap"></canvas>
+        </div>
+      </div>
+
+      <!-- Joystick -->
+      <div id="joyBase" class="joy-base" hidden><div id="joyKnob" class="joy-knob"></div></div>
+
+      <!-- Thong bao -->
+      <div id="toast" class="toast" hidden></div>
+      <div id="netBanner" class="net-banner" hidden>MẤT KẾT NỐI — ĐANG KẾT NỐI LẠI</div>
+
+      <!-- Cau hoi -->
+      <div id="questionOverlay" class="overlay" hidden>
+        <div class="question-card">
+          <div class="question-head">
+            <span id="questionTag" class="question-tag">CÂU 1 / 10</span>
+            <span class="question-hint">CHỌN 1 ĐÁP ÁN</span>
+          </div>
+          <div id="questionText" class="question-text"></div>
+          <div id="questionOptions" class="question-options"></div>
+          <div id="questionFeedback" class="question-feedback" hidden></div>
+          <div class="question-actions">
+            <button id="questionLater" class="btn btn-ghost" type="button">ĐỂ SAU</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chien thang / ket qua -->
+      <div id="winOverlay" class="overlay" hidden>
+        <div class="win-card">
+          <div class="win-kicker" id="winKicker">KẾT QUẢ</div>
+          <h2 class="win-title" id="winTitle">CHIẾN THẮNG</h2>
+          <p class="win-sub" id="winSub"></p>
+          <div class="win-actions">
+            <button id="btnContinue" class="btn btn-ghost" type="button">TIẾP TỤC CHƠI</button>
+            <button id="btnPlayAgain" class="btn btn-solid" type="button">CHƠI LẠI</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="questions.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>

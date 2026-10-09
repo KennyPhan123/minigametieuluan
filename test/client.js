@@ -140,6 +140,7 @@ async function main() {
   const created = [];
   const document = {
     body: makeElement('body'),
+    addEventListener() {},
     querySelector: () => makeElement('div'),
     getElementById: (id) => els[id] || null,
     createElement: (tag) => {
@@ -271,8 +272,25 @@ async function main() {
   assert(els.startBtnLobby.hidden, 'player cannot start');
   const round = {t:'round', round:1,questionIdx:0,maze:['#######','#.....#','#.#.#.#','#.....#','#######'],treasure:{x:5.5,y:1.5},spawn:{x:1.5,y:1.5},endsAt:Date.now()+60000,serverNow:Date.now(),players:roster};
   ws.feed(round);
-  press('ArrowRight'); release('ArrowRight'); pump(45);
-  assert(ws.last('touch'), 'one keypress slides to chest');
+  press('ArrowRight'); pump(10); release('ArrowRight'); pump(6);
+  const stopped = ws.last('state').x;
+  assert(stopped > 1.5 && stopped < 3, 'continuous, non-grid movement');
+  pump(20);
+  assert.equal(ws.last('state').x, stopped, 'release stops immediately');
+  press('ArrowUp'); pump(25); release('ArrowUp'); pump(6);
+  assert(ws.last('state').y >= 1.28, 'circle collision blocks border walls');
+  ws.feed(round);
+  els.touchLayer.fire('pointerdown',{pointerId:1,clientX:100,clientY:200});
+  els.touchLayer.fire('pointermove',{pointerId:1,clientX:152,clientY:200});
+  assert(!els.joyBase.hidden, 'joystick appears where touched');
+  pump(10);
+  els.touchLayer.fire('pointerup',{pointerId:1}); pump(6);
+  assert(els.joyBase.hidden);
+  const afterTouch=ws.last('state').x; pump(15);
+  assert.equal(ws.last('state').x,afterTouch,'lifting finger stops movement');
+  assert(afterTouch>1.5,'joystick moves player');
+  press('ArrowRight'); pump(50); release('ArrowRight');
+  assert(ws.last('touch'), 'holding direction reaches chest');
   ws.feed({t:'touchAck',ok:true,first:true,eliminations:[0,2],score:150});
   assert(!els.questionOverlay.hidden);
   assert.equal(els.questionOptions.children.length,4);
@@ -305,6 +323,6 @@ async function main() {
   ws.feed({t:'gameover',leaderboard:[{id:'p',name:'Player',score:100,totalCorrect:1}]});
   assert(!els.gameoverOverlay.hidden);
   assert(!els.btnAgain.hidden);
-  console.log('client OK: lobby, swipe, personal hints, freeze, solved, review, promotion, classroom, final');
+  console.log('client OK: lobby, free movement, stop-on-release, wall collision, joystick, personal hints, freeze, solved, review, promotion, classroom, final');
 }
 main().then(()=>process.exit(0),err=>{console.error(err);process.exit(1)});

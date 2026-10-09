@@ -22,14 +22,14 @@
         <ol class="start-how">
           <li><span class="num">01</span> Người vào đầu tiên là chủ phòng (xem map, điều khiển vòng chơi)</li>
           <li><span class="num">02</span> Người chơi khác vào phòng chờ, chủ phòng bấm bắt đầu khi đủ người</li>
-          <li><span class="num">03</span> Vuốt để di chuyển — đi tới tường thì dừng, vuốt hướng khác để rẽ</li>
+          <li><span class="num">03</span> Di chuyển tự do — giữ joystick hoặc phím để đi, thả ra để dừng</li>
         </ol>
         <form id="startForm" autocomplete="off">
           <input id="nameInput" type="text" maxlength="16" placeholder="Nhập tên của bạn" autocomplete="off" spellcheck="false" />
           <button id="startBtn" type="submit">VÀO GAME</button>
         </form>
         <div id="startError" class="start-error" hidden></div>
-        <div class="start-hint">Điện thoại: vuốt màn hình &nbsp;·&nbsp; Máy tính: phím WASD / mũi tên</div>
+        <div class="start-hint">Điện thoại: chạm và kéo joystick &nbsp;·&nbsp; Máy tính: phím WASD / mũi tên</div>
       </div>
     </div>
 
@@ -76,6 +76,7 @@
     <div id="game" class="game" hidden>
       <canvas id="gameCanvas"></canvas>
       <div id="touchLayer" class="touch-layer"></div>
+      <div id="joyBase" class="joy-base" hidden aria-hidden="true"><div id="joyKnob" class="joy-knob"></div></div>
 
       <!-- HUD chung -->
       <div id="hud" class="hud">

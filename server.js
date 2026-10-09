@@ -23,8 +23,8 @@ const { mulberry32, shuffle, generateMaze, edgeCells, cellCenter } = require('./
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-const COLS = 11; // cells -> grid 31 x 23 tiles (vua phai, khong rong)
-const ROWS = 9;
+const COLS = 15; // 31 x 23 tiles; central treasure is >=10 tiles from edge spawns
+const ROWS = 11;
 const GRID_W = COLS * 2 + 1;
 const GRID_H = ROWS * 2 + 1;
 const TOTAL_ROUNDS = QUESTIONS.length; // 10

@@ -3,16 +3,18 @@
 /* ---------------------------------------------------------------
  * Me cung Hasaki - client v2
  * - Chu phong: map toan canh + bang xep hang + feed su kien
- * - Nguoi choi: zoom gan nhan vat, vuot 1 lan = di den tuong
+ * - Nguoi choi: zoom gan, di chuyen tu do bang joystick / ban phim
  * - Vong 60s: ruong o giua, cham de mo cau hoi, dong bang 7s khi sai
  * --------------------------------------------------------------- */
 
 (function () {
   const $ = (id) => document.getElementById(id);
 
-  const SPEED = 6.5; // o / giay (dash den tuong)
+  const SPEED = 5.5; // tiles per second, continuous analog movement
   const TOUCH_R = 0.9;
-  const SWIPE_MIN = 28; // px
+  const PLAYER_R = 0.28;
+  const JOY_RADIUS = 52;
+  const VIEW_RADIUS = 4.5;
 
   /* ------------------------------ DOM ------------------------------ */
 
@@ -127,10 +129,12 @@
   };
 
   // vi tri rieng cua minh tren client (server chi luu ban copy)
-  const me = { x: 1.5, y: 1.5, fx: 1, fy: 0, from: null, to: null, dir: null, queue: null, progress: 0 };
+  const me = { x: 1.5, y: 1.5, fx: 1, fy: 0 };
 
   const keys = new Set();
-  const swipe = { active: false, sx: 0, sy: 0 };
+  const joystick = { id: null, sx: 0, sy: 0, x: 0, y: 0 };
+  const joyBase = $('joyBase');
+  const joyKnob = $('joyKnob');
 
   function myEntry() {
     return S.players.get(S.myId) || null;
@@ -439,7 +443,7 @@
     buildRoundHUD();
     S.cam.x = me.x;
     S.cam.y = me.y;
-    toast('VÒNG ' + S.round + ' — vuốt (hoặc phím) để di chuyển');
+    toast('VÒNG ' + S.round + ' — giữ joystick hoặc phím để di chuyển');
   }
 
   function handleTouchEvent(msg) {
@@ -566,6 +570,7 @@
   }
 
   function handleRoundEnd(msg) {
+    resetInput();
     S.phase = msg.phase;
     S.roundEndInfo = msg;
     S.correctCount = msg.correctCount;
@@ -791,6 +796,7 @@
   }
 
   function openModal() {
+    resetInput();
     if (S.modalSolved) return;
     S.modalOpen = true;
     questionCard.classList.remove('solved');
@@ -1057,149 +1063,90 @@
     return true;
   }
 
-  function tryDash(dx, dy) {
-    if (!canMove()) return;
-    // dao nguoc ngay khi vuot nguoc huong
-    if (me.dir && me.dir.dx === -dx && me.dir.dy === -dy && me.progress > 0.02) {
-      const f = me.from;
-      me.from = me.to;
-      me.to = f;
-      me.dir = { dx, dy };
-      me.progress = 1 - me.progress;
-      me.queue = null;
-      me.fx = dx;
-      me.fy = dy;
-      return;
-    }
-    me.queue = { dx, dy };
-    if (!me.dir) stepDash(0);
-    me.fx = dx;
-    me.fy = dy;
+  function tileOpen(x, y) {
+    return !!S.grid && S.grid[y]?.[x] === '.';
   }
 
-  function tileOpen(x, y) {
-    if (!S.grid || x < 0 || y < 0 || x >= S.W || y >= S.H) return false;
-    return S.grid[y][x] === '.';
+  function resetInput() {
+    keys.clear();
+    joystick.id = null;
+    joystick.x = joystick.y = 0;
+    joyBase.hidden = true;
+    joyKnob.style.transform = 'translate(0px, 0px)';
   }
 
   function setMeAt(x, y) {
-    me.x = x;
-    me.y = y;
-    const cx = Math.round(x - 0.5);
-    const cy = Math.round(y - 0.5);
-    me.from = { cx, cy };
-    me.to = null;
-    me.dir = null;
-    me.queue = null;
-    me.progress = 0;
-    S.cam.x = x;
-    S.cam.y = y;
+    me.x = x; me.y = y;
+    S.cam.x = x; S.cam.y = y;
+    resetInput();
   }
 
-  function stepDash(dt) {
-    let remaining = SPEED * dt;
-    let guard = 0;
-    while (guard++ < 128) {
-      if (!me.dir) {
-        if (!me.queue) return;
-        const q = me.queue;
-        if (tileOpen(me.from.cx + q.dx, me.from.cy + q.dy)) {
-          me.dir = q;
-          me.queue = null;
-          me.to = { cx: me.from.cx + q.dx, cy: me.from.cy + q.dy };
-          me.fx = q.dx;
-          me.fy = q.dy;
-        } else {
-          me.queue = null; // huong bi chan -> bo
-          return;
-        }
-        if (remaining <= 0) return;
+  function fits(x, y) {
+    for (let gy = Math.floor(y - PLAYER_R); gy <= Math.floor(y + PLAYER_R); gy++) {
+      for (let gx = Math.floor(x - PLAYER_R); gx <= Math.floor(x + PLAYER_R); gx++) {
+        if (tileOpen(gx, gy)) continue;
+        const nx = Math.max(gx, Math.min(x, gx + 1));
+        const ny = Math.max(gy, Math.min(y, gy + 1));
+        if ((x - nx) ** 2 + (y - ny) ** 2 < PLAYER_R ** 2) return false;
       }
-      const step = Math.min(remaining, 1 - me.progress);
-      me.progress += step;
-      remaining -= step;
-      if (me.progress >= 1 - 1e-9) {
-        me.progress = 0;
-        me.from = me.to;
-        // den giao lo: uu tien huong dang queue
-        if (me.queue && tileOpen(me.from.cx + me.queue.dx, me.from.cy + me.queue.dy)) {
-          me.dir = me.queue;
-          me.queue = null;
-          me.to = { cx: me.from.cx + me.dir.dx, cy: me.from.cy + me.dir.dy };
-          me.fx = me.dir.dx;
-          me.fy = me.dir.dy;
-        } else if (tileOpen(me.from.cx + me.dir.dx, me.from.cy + me.dir.dy)) {
-          me.to = { cx: me.from.cx + me.dir.dx, cy: me.from.cy + me.dir.dy };
-        } else {
-          me.dir = null;
-          me.to = null;
-        }
-      }
-      if (remaining <= 0) return;
+    }
+    return true;
+  }
+
+  function moveFreely(dt) {
+    let dx = joystick.x, dy = joystick.y;
+    if (keys.has('d') || keys.has('arrowright')) dx += 1;
+    if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
+    if (keys.has('s') || keys.has('arrowdown')) dy += 1;
+    if (keys.has('w') || keys.has('arrowup')) dy -= 1;
+    const length = Math.hypot(dx, dy);
+    if (!length) return;
+    me.fx = dx / length; me.fy = dy / length;
+    if (length > 1) { dx /= length; dy /= length; }
+    // Small substeps prevent tunnelling; resolve axes separately to slide along walls.
+    const steps = Math.max(1, Math.ceil(SPEED * dt / 0.08));
+    for (let i = 0; i < steps; i++) {
+      const nx = me.x + dx * SPEED * dt / steps;
+      if (fits(nx, me.y)) me.x = nx;
+      const ny = me.y + dy * SPEED * dt / steps;
+      if (fits(me.x, ny)) me.y = ny;
     }
   }
 
-  function syncMePos() {
-    if (me.dir && me.to) {
-      me.x = me.from.cx + 0.5 + (me.to.cx - me.from.cx) * me.progress;
-      me.y = me.from.cy + 0.5 + (me.to.cy - me.from.cy) * me.progress;
-    } else if (me.from) {
-      me.x = me.from.cx + 0.5;
-      me.y = me.from.cy + 0.5;
-    }
-  }
-
-  window.addEventListener('keydown', (e) => {
+  const movementKeys = ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'];
+  window.addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
-    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k) && gameEl.hidden === false) {
-      e.preventDefault();
-    }
-    if (S.phase !== 'round') return;
-    if (k === 'arrowup' || k === 'w') tryDash(0, -1);
-    else if (k === 'arrowdown' || k === 's') tryDash(0, 1);
-    else if (k === 'arrowleft' || k === 'a') tryDash(-1, 0);
-    else if (k === 'arrowright' || k === 'd') tryDash(1, 0);
-    keys.add(k);
+    if (!movementKeys.includes(k) || gameEl.hidden) return;
+    e.preventDefault();
+    if (canMove()) keys.add(k);
   });
-  window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-  window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+  window.addEventListener('blur', resetInput);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); });
 
-  touchLayer.addEventListener('pointerdown', (e) => {
-    swipe.active = true;
-    swipe.sent = false;
-    swipe.sx = e.clientX;
-    swipe.sy = e.clientY;
-    try {
-      touchLayer.setPointerCapture(e.pointerId);
-    } catch (err) {}
+  touchLayer.addEventListener('pointerdown', e => {
+    if (!canMove() || joystick.id !== null || (e.button !== undefined && e.button !== 0)) return;
+    joystick.id = e.pointerId;
+    joystick.sx = e.clientX; joystick.sy = e.clientY;
+    joystick.x = joystick.y = 0;
+    joyBase.style.left = e.clientX + 'px'; joyBase.style.top = e.clientY + 'px';
+    joyKnob.style.transform = 'translate(0px, 0px)';
+    joyBase.hidden = false;
+    try { touchLayer.setPointerCapture(e.pointerId); } catch (_) {}
   });
-
-  touchLayer.addEventListener('pointermove', (e) => {
-    if (!swipe.active || swipe.sent) return;
-    const dx = e.clientX - swipe.sx;
-    const dy = e.clientY - swipe.sy;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_MIN) {
-      if (Math.abs(dx) > Math.abs(dy)) tryDash(Math.sign(dx), 0);
-      else tryDash(0, Math.sign(dy));
-      swipe.sent = true;
-      swipe.sx = e.clientX;
-      swipe.sy = e.clientY;
-    }
+  touchLayer.addEventListener('pointermove', e => {
+    if (e.pointerId !== joystick.id) return;
+    const dx = e.clientX - joystick.sx, dy = e.clientY - joystick.sy;
+    const length = Math.hypot(dx, dy), radius = Math.min(JOY_RADIUS, length);
+    const x = length ? dx / length : 0, y = length ? dy / length : 0;
+    const strength = Math.max(0, (radius - 7) / (JOY_RADIUS - 7));
+    joystick.x = x * strength; joystick.y = y * strength;
+    joyKnob.style.transform = `translate(${x * radius}px, ${y * radius}px)`;
   });
-
-  function endSwipe(e) {
-    if (!swipe.active) return;
-    swipe.active = false;
-    if (!e || swipe.sent) return;
-    const dx = e.clientX - swipe.sx;
-    const dy = e.clientY - swipe.sy;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_MIN) {
-      if (Math.abs(dx) > Math.abs(dy)) tryDash(Math.sign(dx), 0);
-      else tryDash(0, Math.sign(dy));
-    }
-  }
-  touchLayer.addEventListener('pointerup', endSwipe);
-  touchLayer.addEventListener('pointercancel', () => (swipe.active = false));
+  function releasePointer(e) { if (e.pointerId === joystick.id) resetInput(); }
+  touchLayer.addEventListener('pointerup', releasePointer);
+  touchLayer.addEventListener('pointercancel', releasePointer);
+  touchLayer.addEventListener('lostpointercapture', releasePointer);
 
   /* ------------------------------ update ---------------------------- */
 
@@ -1210,8 +1157,7 @@
   function update(dt, now) {
     if (S.phase !== 'round' || !S.grid) return;
 
-    if (canMove()) stepDash(dt);
-    syncMePos();
+    if (canMove()) moveFreely(dt);
 
     // camera keo theo + nhin toi huong di
     const lerp = 1 - Math.exp(-dt * 7);
@@ -1268,7 +1214,7 @@
     canvas.height = Math.round(S.viewH * S.dpr);
     ctx.setTransform(S.dpr, 0, 0, S.dpr, 0, 0);
     const shortSide = Math.min(S.viewW, S.viewH);
-    S.tilePx = Math.max(34, Math.min(56, shortSide / 10));
+    S.tilePx = Math.max(44, Math.min(90, shortSide / 7));
     S.labelFont = '600 11px ' + getComputedStyle(document.body).fontFamily;
     const mr = minimap.getBoundingClientRect();
     minimap.width = Math.round(mr.width * S.dpr);
@@ -1415,6 +1361,16 @@
     return { scale: s, ox, oy, fog: true };
   }
 
+  function visibleFromMe(x, y) {
+    const distance = Math.hypot(x - me.x, y - me.y);
+    if (distance >= VIEW_RADIUS) return false;
+    const steps = Math.max(1, Math.ceil(distance * 12));
+    for (let i = 1; i <= steps; i++) {
+      if (!tileOpen(Math.floor(me.x + (x-me.x)*i/steps), Math.floor(me.y + (y-me.y)*i/steps))) return false;
+    }
+    return true;
+  }
+
   function render(now) {
     const w = S.viewW;
     const h = S.viewH;
@@ -1437,8 +1393,8 @@
       }
     }
 
-    // ruong
-    if (S.treasure) {
+    // Treasure stays hidden outside player sight; host always sees it.
+    if (S.treasure && (!fog || visibleFromMe(S.treasure.x, S.treasure.y))) {
       const sx = ox + S.treasure.x * s;
       const sy = oy + S.treasure.y * s + Math.sin(now / 420) * s * 0.05;
       const d = S.role === 'host' ? 0 : Math.hypot(S.treasure.x - me.x, S.treasure.y - me.y);
@@ -1458,8 +1414,8 @@
     if (fog) {
       const meSX = ox + me.x * s;
       const meSY = oy + me.y * s;
-      const rClear = 4.3 * s;
-      const rFull = 8.6 * s;
+      const rClear = 2.5 * s;
+      const rFull = VIEW_RADIUS * s;
       const rOut = Math.hypot(w, h);
       const g = ctx.createRadialGradient(meSX, meSY, 0, meSX, meSY, rOut);
       const oClear = Math.min(1, rClear / rOut);
@@ -1478,7 +1434,7 @@
       const sx = ox + p.x * s;
       const sy = oy + p.y * s;
       if (sx < -80 || sy < -80 || sx > w + 80 || sy > h + 80) continue;
-      if (fog && Math.hypot(p.x-me.x,p.y-me.y)>5) continue;
+      if (fog && !visibleFromMe(p.x, p.y)) continue;
       drawPlayer(sx, sy, p, false, s);
     }
     // minh

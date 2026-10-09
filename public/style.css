@@ -1203,3 +1203,15 @@ input {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+.joy-base {
+  position: absolute; z-index: 12; pointer-events: none;
+  width: 112px; height: 112px; margin: -56px 0 0 -56px;
+  border: 2px solid #111; border-radius: 50%;
+  background: rgba(255,255,255,.7);
+}
+.joy-knob {
+  position: absolute; top: 50%; left: 50%;
+  width: 42px; height: 42px; margin: -21px 0 0 -21px;
+  border-radius: 50%; background: #111; border: 2px solid white;
+}

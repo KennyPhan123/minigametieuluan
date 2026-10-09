@@ -1,175 +1,36 @@
 'use strict';
-
-/* End-to-end smoke test: boots the server on a test port, connects two
- * WebSocket clients and exercises join / move / progress / win / restart. */
-
-const assert = require('assert');
-const { spawn } = require('child_process');
-const path = require('path');
-const http = require('http');
-const WebSocket = require('ws');
-
-const PORT = 3111;
-const BASE = 'http://127.0.0.1:' + PORT;
-
-function wait(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function health(retries = 40) {
-  return new Promise((resolve, reject) => {
-    const attempt = (left) => {
-      http
-        .get(BASE + '/health', (res) => {
-          let body = '';
-          res.on('data', (d) => (body += d));
-          res.on('end', () => {
-            if (res.statusCode === 200) {
-              try {
-                resolve(JSON.parse(body));
-              } catch (e) {
-                reject(e);
-              }
-            } else if (left > 0) setTimeout(() => attempt(left - 1), 150);
-            else reject(new Error('health bad status ' + res.statusCode));
-          });
-        })
-        .on('error', () => {
-          if (left > 0) setTimeout(() => attempt(left - 1), 150);
-          else reject(new Error('server never came up'));
-        });
-    };
-    attempt(retries);
-  });
-}
-
-function connect(name) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket('ws://127.0.0.1:' + PORT);
-    const inbox = [];
-    ws.on('message', (d) => {
-      try {
-        inbox.push(JSON.parse(d.toString()));
-      } catch (e) {}
-    });
-    ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'join', name }));
-      resolve({ ws, inbox, name });
-    });
-    ws.on('error', reject);
-  });
-}
-
-function waitFor(inbox, type, timeout = 4000) {
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const tick = () => {
-      const m = inbox.find((x) => x.type === type);
-      if (m) return resolve(m);
-      if (Date.now() - t0 > timeout) return reject(new Error('timeout waiting for ' + type));
-      setTimeout(tick, 25);
-    };
-    tick();
-  });
-}
-
-async function main() {
-  const server = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT) },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let serverLog = '';
-  server.stdout.on('data', (d) => (serverLog += d));
-  server.stderr.on('data', (d) => (serverLog += d));
-
-  try {
-    const h = await health();
-    assert.strictEqual(h.ok, true, 'health ok');
-
-    // --- client 1 joins ---
-    const c1 = await connect('An');
-    const init1 = await waitFor(c1.inbox, 'init');
-    assert.ok(Array.isArray(init1.grid) && init1.grid.length > 10, 'grid rows');
-    assert.ok(init1.grid[0].length > 10, 'grid cols');
-    assert.strictEqual(init1.treasures.length, 10, '10 treasures');
-    assert.strictEqual(init1.players.length, 1, 'one player after first join');
-    assert.strictEqual(init1.start.x, 1.5, 'start x');
-    assert.ok(init1.gameId, 'gameId present');
-    // every treasure on a passage
-    for (const t of init1.treasures) {
-      const gx = Math.floor(t.x);
-      const gy = Math.floor(t.y);
-      assert.strictEqual(init1.grid[gy][gx], '.', 'treasure on passage');
-    }
-    // question ids are a permutation of 0..9
-    const qs = init1.treasures.map((t) => t.q).sort((a, b) => a - b);
-    assert.deepStrictEqual(qs, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'question permutation');
-
-    // --- client 2 joins, client 1 gets notified ---
-    const c2 = await connect('Binh');
-    const init2 = await waitFor(c2.inbox, 'init');
-    assert.strictEqual(init2.players.length, 2, 'two players');
-    const joined = await waitFor(c1.inbox, 'joined');
-    assert.strictEqual(joined.player.name, 'Binh', 'joined name relayed');
-
-    // --- position relay ---
-    c1.ws.send(JSON.stringify({ type: 'state', x: 5.25, y: 6.5, fx: 1, fy: 0 }));
-    const st = await waitFor(c2.inbox, 'state');
-    assert.ok(Math.abs(st.x - 5.25) < 0.001 && Math.abs(st.y - 6.5) < 0.001, 'state relayed');
-    assert.strictEqual(st.id, init1.id, 'state from c1');
-
-    // --- progress relay ---
-    c1.ws.send(JSON.stringify({ type: 'progress', collected: [0, 1, 2] }));
-    const pr = await waitFor(c2.inbox, 'progress');
-    assert.strictEqual(pr.count, 3, 'progress count');
-    assert.strictEqual(pr.id, init1.id, 'progress owner');
-
-    // --- win at 10 ---
-    c1.ws.send(JSON.stringify({ type: 'progress', collected: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] }));
-    const won1 = await waitFor(c1.inbox, 'won');
-    const won2 = await waitFor(c2.inbox, 'won');
-    assert.strictEqual(won1.id, init1.id, 'winner is c1');
-    assert.strictEqual(won2.name, 'An', 'winner name relayed');
-
-    // --- reconnect keeps progress bookkeeping consistent ---
-    const health2 = await health();
-    assert.ok(health2.players >= 2, 'server tracks players');
-
-    // --- restart resets progress ---
-    c2.ws.send(JSON.stringify({ type: 'restart' }));
-    const rs1 = await waitFor(c1.inbox, 'restart');
-    const rs2 = await waitFor(c2.inbox, 'restart');
-    assert.ok(rs1.gameId && rs1.gameId !== init1.gameId, 'restart changes gameId');
-    for (const p of rs1.players) assert.strictEqual(p.progress, 0, 'progress reset');
-    assert.ok(rs2.players, 'restart broadcast to both');
-
-    // --- leave notification ---
-    const leftPromise = waitFor(c2.inbox, 'left');
-    c1.ws.close();
-    const left = await leftPromise;
-    assert.strictEqual(left.id, init1.id, 'left id matches');
-
-    // --- static files served ---
-    const page = await new Promise((resolve, reject) => {
-      http.get(BASE + '/', (res) => {
-        let body = '';
-        res.on('data', (d) => (body += d));
-        res.on('end', () => resolve({ status: res.statusCode, body }));
-      }).on('error', reject);
-    });
-    assert.strictEqual(page.status, 200, 'index served');
-    assert.ok(page.body.includes('MÊ CUNG'), 'index content');
-
-    c2.ws.close();
-    console.log('smoke test OK');
-  } finally {
-    server.kill('SIGTERM');
-    await wait(150);
-    if (server.exitCode === null) server.kill('SIGKILL');
+const assert=require('assert');
+const {spawn}=require('child_process');
+const WebSocket=require('ws');
+const Q=require('../public/questions');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let clients=[];
+async function until(fn,label,timeout=5000){let start=Date.now();while(!fn()){if(Date.now()-start>timeout)throw Error('timeout '+label);await sleep(10);}return fn();}
+async function connect(name,port){const ws=new WebSocket(`ws://127.0.0.1:${port}`),inbox=[];clients.push(ws);ws.on('message',d=>inbox.push(JSON.parse(d)));await new Promise((r,j)=>{ws.once('open',r);ws.once('error',j)});const c={ws,inbox,send:o=>ws.send(JSON.stringify(o)),get:(t)=>inbox.filter(m=>m.t===t).at(-1)};c.send({t:'join',name});c.init=await until(()=>c.get('init'),'init');return c;}
+async function run(port,roundMs,fn){const proc=spawn(process.execPath,['server.js'],{cwd:require('path').join(__dirname,'..'),env:{...process.env,PORT:String(port),ROUND_MS:String(roundMs),FREEZE_MS:'120'},stdio:['ignore','pipe','pipe']});let log='';proc.stdout.on('data',d=>log+=d);proc.stderr.on('data',d=>log+=d);try{await until(()=>log.includes('server v2'),'boot');await fn(port);}catch(e){console.error(log);throw e;}finally{for(const ws of clients)ws.terminate();clients=[];proc.kill();await new Promise(r=>proc.once('exit',r));}}
+function route(round){const g=round.maze,start=[Math.floor(round.spawn.x),Math.floor(round.spawn.y)],target=[Math.floor(round.treasure.x),Math.floor(round.treasure.y)],queue=[start],prev=new Map([[start.join(),null]]);for(let i=0;i<queue.length;i++){let [x,y]=queue[i];for(let [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){let n=[x+dx,y+dy];if(g[n[1]]?.[n[0]]==='.'&&!prev.has(n.join())){prev.set(n.join(),[x,y]);queue.push(n);}}}let r=[],at=target;while(at){r.unshift(at);at=prev.get(at.join());}return r;}
+async function walk(c,round){let path=route(round);for(let i=1;i<path.length;i++){await sleep(160);const [x,y]=path[i];c.send({t:'state',x:x+.5,y:y+.5});}await sleep(20);c.send({t:'touch'});return until(()=>c.get('touchAck'),'touch');}
+(async()=>{
+ await run(3111,18000,async port=>{
+  const host=await connect('Teacher',port);assert.equal(host.init.role,'host');const ps=[];for(let i=0;i<5;i++)ps.push(await connect('P'+i,port));
+  ps[0].send({t:'host',action:'start'});await sleep(40);assert(!host.get('round'),'only host starts');host.send({t:'host',action:'start'});await until(()=>host.get('round'),'round');assert(!host.get('round').players.find(p=>p.id===host.init.id).spawned);
+  const rounds=await Promise.all(ps.map(c=>until(()=>c.get('round'),'spawn')));
+  ps[0].send({t:'state',x:rounds[0].treasure.x,y:rounds[0].treasure.y});ps[0].send({t:'touch'});assert.equal((await until(()=>ps[0].get('touchAck'),'invalid touch')).ok,false);ps[0].inbox=ps[0].inbox; // consume rejected ack
+  ps[0].inbox.splice(ps[0].inbox.findIndex(m=>m.t==='touchAck'),1);
+  const acks=await Promise.all(ps.map((c,i)=>walk(c,rounds[i])));assert(acks.every(a=>a.ok));assert.equal(acks.filter(a=>a.first).length,1);
+  const first=acks.findIndex(a=>a.first);assert.equal(acks[first].eliminations.length,2);const other=acks.findIndex(a=>!a.first);assert.equal(acks[other].eliminations.length,0);
+  const wrong=[0,1,2,3].find(i=>i!==Q[0].answer&&!acks[first].eliminations.includes(i));ps[first].send({t:'answer',idx:wrong});await until(()=>ps[first].get('wrong'),'wrong');ps[first].send({t:'answer',idx:Q[0].answer});await until(()=>ps[first].get('answerAck')?.reason==='frozen','freeze rejects');await sleep(140);
+  ps[first].send({t:'answer',idx:Q[0].answer});await until(()=>ps[first].get('correct'),'correct');assert(!host.get('roundEnd'),'one correct does not end round');
+  for(let i=0;i<5;i++)if(i!==first)ps[i].send({t:'answer',idx:Q[0].answer});const end=await until(()=>host.get('roundEnd'),'5 correct end');assert.equal(end.correctCount,5);assert.equal(end.phase,'review');assert.equal(end.leaderboard.length,5);
+  host.send({t:'host',action:'next'});const second=await until(()=>host.get('round')?.round===2&&host.get('round'),'new maze');assert.notDeepEqual(second.maze,rounds[0].maze);assert.deepEqual(second.treasure,rounds[0].treasure);
+  const late=await connect('Late',port);assert(!late.init.me.touched);assert(!late.init.players.find(p=>p.id===late.init.id).spawned,'late joins wait');
+ });
+ await run(3112,100,async port=>{
+  const host=await connect('Teacher',port),p=await connect('Student',port);host.send({t:'host',action:'min',value:1});host.send({t:'host',action:'start'});
+  for(let n=1;n<=10;n++){
+   const end=await until(()=>host.get('roundEnd')?.round===n&&host.get('roundEnd'),'timeout round '+n);assert.equal(end.phase,'classroom');host.send({t:'host',action:'next'});await sleep(15);assert.equal(host.get('round').round,n,'must reveal first');host.send({t:'host',action:'reveal',value:0});await until(()=>host.inbox.filter(m=>m.t==='reveal').length===n,'reveal');host.send({t:'host',action:'next'});
   }
-}
-
-main().catch((err) => {
-  console.error('SMOKE TEST FAILED:', err.message);
-  process.exit(1);
-});
+  const final=await until(()=>host.get('gameover'),'final');assert.equal(final.leaderboard.length,1);assert.equal(final.leaderboard[0].score,0);host.send({t:'host',action:'again'});await until(()=>host.get('room')?.phase==='lobby','reset');
+ });
+ console.log('server OK: roles, movement validation, first arrival, personal hints, freeze, five correct, new maze, late join, 10 rounds, reveal gating, final and reset');
+})().catch(e=>{console.error(e);process.exitCode=1});

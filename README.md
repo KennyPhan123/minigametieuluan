@@ -1,59 +1,53 @@
-# Mê cung Hasaki — Mini game online
+# Mê cung Hasaki — 10 vòng thi đấu
 
-Game web multiplayer: 10 kho báu giấu trong một mê cung cửa hàng Hasaki. Người chơi di chuyển tự do, tìm kho báu, trả lời đúng 10 câu hỏi để thắng.
+Game web tiếng Việt, giao diện đen trắng, điện thoại và laptop. Node.js + Canvas + WebSocket, không cần build.
 
-## Chức năng
-
-- **Mê cung đen trắng** cổ điển, render Canvas, góc nhìn từ trên xuống, zoom gần nhân vật (có sương mù trắng — không thấy quá nhiều map cùng lúc)
-- **Di chuyển tự do** (không theo block): joystick ảo trên điện thoại, phím WASD / mũi tên trên laptop
-- **10 kho báu** (hình viên kim cương) đặt ở các góc/ngõ cụt của mê cung — chạm vào để mở câu hỏi
-- **10 câu hỏi** về Hasaki với 4 phương án A/B/C/D; chọn sai bị gạch và chọn lại được; chọn đúng thì thu thập kho báu
-- **Multiplayer realtime**: mọi người chơi cùng một mê cung, thấy nhau di chuyển, bảng xếp hạng tiến độ trực tuyến
-- **Chiến thắng**: ai thu thập đủ 10 kho báu trước — tất cả đều thấy thông báo; nút "Ván mới" để chơi lại
-- **Bản đồ nhỏ**: chỉ hiện vùng đã khám phá + vị trí người chơi + kho báu đã thu
-- **Tiếp tục lại sau mất kết nối**: tiến độ được lưu (localStorage) theo từng ván
-
-## Design
-
-- Không emoji, tông trắng/đen sáng sủa, giao diện simple & modern
-- Font system stack, viền đen mảnh, bo góc nhẹ, tương phản cao
-
-## Chạy game
-
-```bash
-npm install
-npm start          # server chạy tại http://localhost:3000
+```sh
+npm ci
+npm start
+# http://localhost:3000
+npm test
 ```
 
-Mở trình duyệt trên điện thoại/laptop (cùng mạng) truy cập `http://<ip-máy>:3000`.
+Server lắng nghe `0.0.0.0`, cổng mặc định 3000 (đổi bằng `PORT`). Khi triển khai online, dùng HTTPS và reverse proxy hỗ trợ WebSocket. Một tiến trình server là một phòng chung; không có mã phòng riêng.
 
-## Test
+## Cách tổ chức
 
-```bash
-npm test           # maze test + client playthrough test + multiplayer smoke test
-```
+1. Người vào đầu tiên là chủ phòng, không tham gia thi đấu. Những người sau nhập tên và vào phòng chờ.
+2. Chủ phòng chọn số lượng tối thiểu (không tính chủ phòng), rồi bấm bắt đầu.
+3. Mỗi vòng 60 giây, mê cung mới 23 × 19 ô, một rương ở chính giữa. Người chơi được xáo vị trí ở rìa.
+4. Vuốt một lần hoặc bấm WASD/phím mũi tên để trượt liên tục tới tường. Có thể yêu cầu rẽ ở giao lộ tiếp theo hoặc quay ngược lại. Camera người chơi nhìn gần; chủ phòng thấy toàn bộ bản đồ, trạng thái đúng/sai/đóng băng và bảng dẫn đầu.
+5. Chạm rương để trả lời. Người tới đầu tiên được điểm tìm rương và loại riêng hai trong ba đáp án sai (còn hai lựa chọn). Các người khác vẫn có đủ bốn lựa chọn.
+6. Trả lời sai: hiệu ứng rung, trừ điểm, khóa di chuyển/chọn đáp án trong 7 giây. Lựa chọn sai bị gạch riêng cho người đó. Trả lời đúng: thông báo và đứng chờ.
+7. Vòng kết thúc khi đủ **5 người đúng** hoặc hết 60 giây. Nếu phòng ít hơn 5 người, vẫn chờ hết thời gian.
+8. Có người đúng: hiện lại câu hỏi, đáp án đúng và bảng điểm cuối vòng. Chủ phòng bấm qua màn.
+9. Không có ai đúng (kể cả đã tới rương nhưng chưa giải được): chủ phòng thấy câu hỏi lớn, bốn lựa chọn chưa chọn. Chủ phòng chọn thay câu trả lời của lớp, hệ thống công bố đáp án; sau đó mới cho qua màn. Phần này không cộng/trừ điểm thi đấu.
+10. Sau tổng kết vòng 10, chủ phòng bấm để xem bảng xếp hạng chung. Có thể quay về phòng chờ để chơi ván mới.
 
-## Cấu trúc
+## Điểm số
 
-```
-server.js          # HTTP static + WebSocket realtime + sinh mê cung (chung cho mọi người chơi)
-maze.js            # thuật toán sinh mê cung (recursive backtracker) + chọn vị trí kho báu
-public/index.html  # giao diện: màn hình vào game, HUD, modal câu hỏi, overlay thắng
-public/style.css   # style trắng đen hiện đại
-public/game.js     # client: render, di chuyển, va chạm, camera, joystick, realtime
-public/questions.js# bộ 10 câu hỏi (đáp án + chú thích)
-test/              # maze / client / smoke test
-```
+- Đầu tiên tới rương: `100 + làm tròn(số giây còn lại)`, tối đa 160 điểm.
+- Mỗi câu đúng: `100 + max(0, 50 − ceil(2 × thời gian từ khi chạm rương))`, tối đa 150 điểm. Thời gian đóng băng cũng được tính, không đặt lại bộ đếm khi thử lại.
+- Mỗi lần sai: −30 điểm, điểm có thể âm.
+- Đúng cả 10 vòng: thưởng 200 điểm ở bảng chung.
+- Đồng điểm: ưu tiên số câu đúng, rồi tên.
 
-## Giao thức WebSocket (tóm tắt)
+## Mê cung và thời gian
 
-| Hướng | Message | Ý nghĩa |
-|---|---|---|
-| C → S | `{type:'join', name}` | vào game |
-| C → S | `{type:'state', x, y, fx, fy}` | gửi vị trí ~15 lần/giây |
-| C → S | `{type:'progress', collected:[ids]}` | gửi danh sách kho báu đã thu |
-| C → S | `{type:'restart'}` | bắt đầu ván mới |
-| S → C | `{type:'init', ...}` | mê cung, kho báu, danh sách người chơi |
-| S → C | `{type:'joined'/'left'/'state'/'progress'}` | đồng bộ những người khác |
-| S → C | `{type:'won', id, name}` | có người thắng |
-| S → C | `{type:'restart', gameId, players}` | ván mới cho tất cả |
+Randomized Prim tạo nhiều nhánh ngắn; mở thêm khoảng 22% ngõ cụt để có đường vòng, vẫn giữ nhiều ngõ cụt. Qua 200 seed kiểm thử: trung bình 22,845 ngõ cụt; đường ngắn nhất dài nhất từ rìa đến giữa là 52 ô, tương đương 8 giây di chuyển ở tốc độ 6,5 ô/giây. Đây là đo đường tối ưu, không phải thời gian hoàn thành của người chơi; cần chơi thử thực tế để cân chỉnh độ khó.
+
+## Kiểm thử
+
+- `test/maze.js`: 200 seed, liên thông, viền kín, ngõ cụt, đường vòng và khoảng cách spawn.
+- `test/client.js`: DOM/Canvas mô phỏng, phòng chờ, trượt sau một lần bấm, gợi ý cá nhân, đóng băng, review, chuyển chủ phòng, câu hỏi lớp và bảng cuối.
+- `test/smoke.js`: server thật với nhiều WebSocket; quyền chủ phòng, chặn nhảy thẳng tới rương, người tới đầu, freeze, đúng 5 người kết thúc sớm, thay mê cung, 10 vòng hết giờ, bắt buộc chọn câu hỏi lớp rồi mới qua màn.
+
+`ROUND_MS` và `FREEZE_MS` có thể rút ngắn để chạy test; mặc định thực tế 60000 và 7000.
+
+## Lưu ý triển khai
+
+- Người vào giữa vòng chờ vòng sau, không được nhảy vào thi đấu giữa chừng.
+- Chủ phòng rời đi: quyền điều hành chuyển cho người còn lại vào sớm nhất.
+- Kết nối lại hiện tạo lượt tham gia mới, **không khôi phục điểm cũ**. Không tải lại trang khi đang thi đấu. Điểm và phòng chỉ nằm trong bộ nhớ, khởi động lại server sẽ xóa ván.
+- Server quyết định câu trả lời, thời gian, điểm và tiến trình vòng. Kiểm tra tốc độ/tường cơ bản cho vị trí client; không phải hệ thống chống gian lận hoàn chỉnh.
+- Đáp án đầy đủ nằm trong mã nguồn dự án; HTTP `/questions.js` chỉ trả nội dung câu hỏi và lựa chọn, không trả đáp án trước tổng kết.

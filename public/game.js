@@ -1,20 +1,18 @@
 'use strict';
 
 /* ---------------------------------------------------------------
- * Me cung Hasaki - client
- * - Canvas 2D, goc nhin tren xuong, zoom gan nhan vat
- * - Di chuyen tu do (khong theo block), joystick + ban phim
- * - 10 kho bau / 10 cau hoi, multiplayer realtime
+ * Me cung Hasaki - client v2
+ * - Chu phong: map toan canh + bang xep hang + feed su kien
+ * - Nguoi choi: zoom gan nhan vat, vuot 1 lan = di den tuong
+ * - Vong 60s: ruong o giua, cham de mo cau hoi, dong bang 7s khi sai
  * --------------------------------------------------------------- */
 
 (function () {
   const $ = (id) => document.getElementById(id);
 
-  const SPEED = 4.3; // tiles / second
-  const PLAYER_R = 0.3;
-  const TREASURE_OPEN_R = 0.95;
-  const STATE_INTERVAL = 66; // ms between position updates
-  const STORAGE_PREFIX = 'hasaki_';
+  const SPEED = 6.5; // o / giay (dash den tuong)
+  const TOUCH_R = 0.9;
+  const SWIPE_MIN = 28; // px
 
   /* ------------------------------ DOM ------------------------------ */
 
@@ -23,33 +21,67 @@
   const startBtn = $('startBtn');
   const nameInput = $('nameInput');
   const startError = $('startError');
+  const lobbyScreen = $('lobbyScreen');
+  const lobbyTitle = $('lobbyTitle');
+  const roleBadge = $('roleBadge');
+  const lobbyCount = $('lobbyCount');
+  const lobbyMinLabel = $('lobbyMinLabel');
+  const minControls = $('minControls');
+  const minDown = $('minDown');
+  const minUp = $('minUp');
+  const minValue = $('minValue');
+  const lobbyPlayers = $('lobbyPlayers');
+  const startBtnLobby = $('startBtnLobby');
+  const lobbyHint = $('lobbyHint');
   const gameEl = $('game');
   const canvas = $('gameCanvas');
   const ctx = canvas.getContext('2d');
   const touchLayer = $('touchLayer');
-  const pipsEl = $('pips');
-  const progressText = $('progressText');
-  const onlineChip = $('onlineChip');
+  const hudRound = $('hudRound');
+  const hudTimer = $('hudTimer');
+  const leaderTitle = $('leaderTitle');
   const leaderboardEl = $('leaderboard');
-  const restartBtn = $('restartBtn');
+  const hostFeed = $('hostFeed');
+  const feedList = $('feedList');
+  const playerStatus = $('playerStatus');
+  const myScoreEl = $('myScore');
+  const myStateEl = $('myState');
   const minimap = $('minimap');
   const mctx = minimap.getContext('2d');
-  const joyBase = $('joyBase');
-  const joyKnob = $('joyKnob');
   const toastEl = $('toast');
   const netBanner = $('netBanner');
   const questionOverlay = $('questionOverlay');
+  const questionCard = $('questionCard');
   const questionTag = $('questionTag');
+  const questionSub = $('questionSub');
   const questionText = $('questionText');
   const questionOptions = $('questionOptions');
   const questionFeedback = $('questionFeedback');
-  const questionLater = $('questionLater');
-  const winOverlay = $('winOverlay');
-  const winKicker = $('winKicker');
-  const winTitle = $('winTitle');
-  const winSub = $('winSub');
-  const btnContinue = $('btnContinue');
-  const btnPlayAgain = $('btnPlayAgain');
+  const freezeBox = $('freezeBox');
+  const freezeNum = $('freezeNum');
+  const reviewOverlay = $('reviewOverlay');
+  const reviewKicker = $('reviewKicker');
+  const reviewWinners = $('reviewWinners');
+  const reviewQuestion = $('reviewQuestion');
+  const reviewBoard = $('reviewBoard');
+  const btnNextReview = $('btnNextReview');
+  const waitNextReview = $('waitNextReview');
+  const classroomOverlay = $('classroomOverlay');
+  const classroomCard = $('classroomCard');
+  const classroomKicker = $('classroomKicker');
+  const classroomQ = $('classroomQ');
+  const classroomOptions = $('classroomOptions');
+  const classroomResult = $('classroomResult');
+  const btnNextClass = $('btnNextClass');
+  const waitOverlay = $('waitOverlay');
+  const waitTitle = $('waitTitle');
+  const waitSub = $('waitSub');
+  const gameoverOverlay = $('gameoverOverlay');
+  const finalBoard = $('finalBoard');
+  const btnAgain = $('btnAgain');
+  const waitAgain = $('waitAgain');
+
+  const ALL_OVERLAYS = [questionOverlay, reviewOverlay, classroomOverlay, waitOverlay, gameoverOverlay];
 
   /* ----------------------------- state ----------------------------- */
 
@@ -57,100 +89,89 @@
     ws: null,
     myId: null,
     name: '',
-    gameId: null,
-    started: false,
+    role: 'player',
+    phase: 'lobby', // lobby | round | review | classroom | gameover
+    hostId: null,
+    minPlayers: 2,
+    players: new Map(), // id -> roster entry (+ tx/ty for interp)
+    round: 0,
+    totalRounds: 10,
+    maxCorrect: 5,
+    roundMs: 60000,
+    freezeMs: 7000,
     grid: null,
     W: 0,
     H: 0,
-    treasures: [],
-    collected: new Set(),
-    players: new Map(), // remote id -> {name,x,y,tx,ty,fx,fy,progress}
-    winner: null,
-    me: { x: 1.5, y: 1.5, fx: 1, fy: 0 },
-    cam: { x: 1.5, y: 1.5 },
-    explored: null,
+    treasure: null,
+    treasureFound: false,
+    questionIdx: 0,
+    eliminations: new Set(),
+    correctCount: 0,
+    endsAt: 0,
+    roundEndInfo: null,
+    revealed: null,
+    timeOffset: 0,
+    touchSent: false,
+    modalOpen: false,
+    modalSolved: false,
+    freezeUntil: 0,
+    freezeTimer: null,
+    feed: [],
+    reconnectTimer: null,
     dpr: 1,
     viewW: 0,
     viewH: 0,
     tilePx: 40,
-    modalOpen: false,
-    activeTreasure: null,
-    reconnectTimer: null,
+    cam: { x: 1.5, y: 1.5 },
+    labelFont: '600 11px sans-serif',
   };
 
+  // vi tri rieng cua minh tren client (server chi luu ban copy)
+  const me = { x: 1.5, y: 1.5, fx: 1, fy: 0, from: null, to: null, dir: null, queue: null, progress: 0 };
+
   const keys = new Set();
-  const joy = { active: false, pointerId: null, ox: 0, oy: 0, vx: 0, vy: 0 };
-  const dismissed = new Set(); // treasures the player postponed this visit
-  let labelFont = '600 11px sans-serif';
+  const swipe = { active: false, sx: 0, sy: 0 };
+
+  function myEntry() {
+    return S.players.get(S.myId) || null;
+  }
 
   /* ---------------------------- helpers ---------------------------- */
 
-  function storageKey() {
-    return STORAGE_PREFIX + S.gameId;
+  function send(obj) {
+    if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(obj));
   }
 
-  function saveCollected() {
-    if (!S.gameId) return;
-    try {
-      localStorage.setItem(storageKey(), JSON.stringify(Array.from(S.collected)));
-    } catch (e) {}
-  }
-
-  function loadCollected() {
-    if (!S.gameId) return;
-    try {
-      const raw = localStorage.getItem(storageKey());
-      if (!raw) return;
-      const ids = JSON.parse(raw);
-      if (!Array.isArray(ids)) return;
-      for (const id of ids) {
-        if (Number.isInteger(id) && id >= 0 && id < S.treasures.length) S.collected.add(id);
-      }
-    } catch (e) {}
+  function nowServer() {
+    return Date.now() + S.timeOffset;
   }
 
   let toastTimer = null;
   function toast(msg) {
     toastEl.textContent = msg;
     toastEl.hidden = false;
-    // force reflow so the transition plays
     void toastEl.offsetWidth;
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toastEl.classList.remove('show');
-      setTimeout(() => {
-        toastEl.hidden = true;
-      }, 240);
+      setTimeout(() => (toastEl.hidden = true), 240);
     }, 1900);
+  }
+
+  function hideOverlaysExcept(keep) {
+    for (const o of ALL_OVERLAYS) if (o !== keep) o.hidden = true;
   }
 
   /* ----------------------------- websocket -------------------------- */
 
   function wsUrl() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    return proto + '://' + location.host;
-  }
-
-  function send(obj) {
-    if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(obj));
-  }
-
-  function sendState() {
-    send({ type: 'state', x: S.me.x, y: S.me.y, fx: S.me.fx, fy: S.me.fy });
-  }
-
-  function sendProgress() {
-    send({ type: 'progress', collected: Array.from(S.collected) });
+    return (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host;
   }
 
   function openWS() {
     if (S.ws) {
-      // detach handlers first so the old socket cannot trigger another reconnect
-      S.ws.onclose = null;
-      S.ws.onerror = null;
-      S.ws.onmessage = null;
-      S.ws.onopen = null;
+      S.ws.onclose = S.ws.onerror = S.ws.onmessage = S.ws.onopen = null;
       try {
         S.ws.close();
       } catch (e) {}
@@ -164,11 +185,7 @@
       return;
     }
     S.ws = ws;
-
-    ws.onopen = () => {
-      send({ type: 'join', name: S.name });
-    };
-
+    ws.onopen = () => send({ t: 'join', name: S.name });
     ws.onmessage = (ev) => {
       let msg;
       try {
@@ -178,7 +195,6 @@
       }
       handleMessage(msg);
     };
-
     ws.onclose = () => {
       if (S.ws !== ws) return;
       onSocketDown();
@@ -187,7 +203,8 @@
   }
 
   function onSocketDown() {
-    if (!S.started) {
+    if (lobbyScreen.hidden && gameEl.hidden) {
+      // con o man hinh bat dau
       startError.hidden = false;
       startError.textContent = 'Không thể kết nối máy chủ. Thử lại sau.';
       startBtn.disabled = false;
@@ -199,34 +216,35 @@
     S.reconnectTimer = setTimeout(openWS, 2000);
   }
 
+  /* -------- role: phu thuoc vao hostId hien tai (co the doi khi len host) -------- */
+  function syncRole() {
+    S.role = S.myId && S.hostId === S.myId ? 'host' : 'player';
+    hostFeed.hidden = S.role !== 'host';
+    playerStatus.hidden = S.role === 'host';
+    leaderTitle.textContent = S.role === 'host' ? 'AI DẪN ĐẦU' : 'ĐIỂM';
+  }
+
+  function playerCountView() {
+    // so nguoi choi (khong tinh chu phong)
+    return Math.max(0, S.players.size - (S.hostId ? 1 : 0));
+  }
+
+  /* --------------------------- message router ----------------------- */
+
   function handleMessage(msg) {
-    switch (msg.type) {
+    if (msg.serverNow) S.timeOffset = msg.serverNow - Date.now();
+    switch (msg.t) {
       case 'init':
         handleInit(msg);
         break;
-      case 'joined': {
-        const p = msg.player;
-        if (p && p.id !== S.myId) {
-          S.players.set(p.id, {
-            name: p.name,
-            x: p.x,
-            y: p.y,
-            tx: p.x,
-            ty: p.y,
-            fx: p.fx,
-            fy: p.fy,
-            progress: p.progress || 0,
-          });
-          updateHUD();
-        }
+      case 'room':
+        handleRoom(msg);
         break;
-      }
-      case 'left': {
-        S.players.delete(msg.id);
-        updateHUD();
+      case 'round':
+        handleRound(msg);
         break;
-      }
       case 'state': {
+        if (msg.id === S.myId) break;
         const p = S.players.get(msg.id);
         if (p) {
           p.tx = msg.x;
@@ -236,245 +254,719 @@
         }
         break;
       }
-      case 'progress': {
-        if (msg.id === S.myId) break;
-        const p = S.players.get(msg.id);
-        if (p) {
-          p.progress = msg.count;
-          updateLeaderboard();
-        }
+      case 'touchEvent':
+        handleTouchEvent(msg);
         break;
-      }
-      case 'won': {
-        S.winner = { id: msg.id, name: msg.name };
-        if (msg.id === S.myId) showWin('self');
-        else showWin('announce', msg.name);
+      case 'touchAck':
+        handleTouchAck(msg);
         break;
-      }
-      case 'restart':
-        handleRestart(msg);
+      case 'wrong':
+        handleWrong(msg);
+        break;
+      case 'correct':
+        handleCorrect(msg);
+        break;
+      case 'answerAck':
+        handleAnswerAck(msg);
+        break;
+      case 'roundEnd':
+        handleRoundEnd(msg);
+        break;
+      case 'reveal':
+        renderReveal(msg.picked, msg.correctIdx);
+        break;
+      case 'gameover':
+        handleGameover(msg);
         break;
       default:
         break;
     }
   }
 
-  function handleInit(msg) {
-    const sameGame = S.gameId === msg.gameId;
-    const oldKey = S.gameId ? storageKey() : null;
-
-    S.myId = msg.id;
-    S.grid = msg.grid;
-    S.W = msg.w;
-    S.H = msg.h;
-    S.treasures = msg.treasures;
-    S.explored = new Uint8Array(msg.w * msg.h);
-
-    const firstBoot = !S.started;
-    if (!sameGame) {
-      S.gameId = msg.gameId;
-      if (oldKey && oldKey !== storageKey()) {
-        try {
-          localStorage.removeItem(oldKey);
-        } catch (e) {}
-      }
-      if (firstBoot) {
-        S.collected.clear();
-        loadCollected();
+  function syncRoster(list) {
+    const seen = new Set();
+    for (const e of list || []) {
+      seen.add(e.id);
+      const old = S.players.get(e.id);
+      if (old) {
+        Object.assign(old, e);
+        if (e.id !== S.myId) {
+          old.tx = e.x;
+          old.ty = e.y;
+        }
       } else {
-        S.collected.clear();
+        S.players.set(e.id, { ...e, tx: e.x, ty: e.y });
       }
     }
+    for (const id of Array.from(S.players.keys())) if (!seen.has(id)) S.players.delete(id);
+  }
 
-    if (firstBoot || !sameGame) {
-      S.me.x = msg.start.x;
-      S.me.y = msg.start.y;
-      S.cam.x = S.me.x;
-      S.cam.y = S.me.y;
-    }
+  function handleInit(msg) {
+    S.myId = msg.id;
+    S.role = msg.role;
+    S.hostId = msg.hostId;
+    S.minPlayers = msg.minPlayers;
+    S.phase = msg.phase;
+    S.round = msg.round;
+    S.roundMs = msg.roundMs || S.roundMs;
+    S.freezeMs = msg.freezeMs || S.freezeMs;
+    S.totalRounds = msg.totalRounds || S.totalRounds;
+    S.maxCorrect = msg.maxCorrect || S.maxCorrect;
+    S.correctCount = msg.correctCount;
+    S.revealed = msg.revealed;
+    S.correctIdx = msg.correctIdx;
+    S.roundEndInfo = msg.roundEndInfo;
+    S.timeOffset = msg.serverNow - Date.now();
+    S.hostId = msg.hostId;
+    syncRole();
+    syncRoster(msg.players);
+    S.treasureFound = (msg.players || []).some((e) => e.touched);
 
-    // rebuild remotes
-    S.players.clear();
-    for (const p of msg.players) {
-      if (p.id === S.myId) continue;
-      S.players.set(p.id, {
-        name: p.name,
-        x: p.x,
-        y: p.y,
-        tx: p.x,
-        ty: p.y,
-        fx: p.fx,
-        fy: p.fy,
-        progress: p.progress || 0,
-      });
-    }
-
-    S.winner = msg.winner || null;
-
-    if (firstBoot) {
-      startScreen.hidden = true;
-      gameEl.hidden = false;
-      S.started = true;
-      startBtn.disabled = false;
-      startBtn.textContent = 'VÀO GAME';
-      resize();
-      buildPips();
-    }
+    startScreen.hidden = true;
+    S.grid = msg.maze ? parseMaze(msg.maze) : null;
+    if (msg.treasure) S.treasure = msg.treasure;
+    if (Number.isInteger(msg.questionIdx)) S.questionIdx = msg.questionIdx;
+    S.eliminations = new Set(msg.eliminations || []);
+    S.endsAt = msg.endsAt || 0;
 
     netBanner.hidden = true;
-    buildPips();
-    updateHUD();
+    if (S.phase === 'lobby') {
+      enterLobby();
+      return;
+    }
 
-    // restore progress after reconnect / reload
-    if (S.collected.size > 0) sendProgress();
-    sendState();
+    // vao giua van
+    gameEl.hidden = false;
+    lobbyScreen.hidden = true;
+    if (msg.spawn && msg.spawn.x) {
+      setMeAt(msg.spawn.x, msg.spawn.y);
+    }
+    const mine = msg.me || {};
+    const p = myEntry();
+    if (p) {
+      p.touched = !!mine.touched;
+      p.roundCorrect = !!mine.roundCorrect;
+      p.frozenUntil = mine.frozenUntil || 0;
+    }
+    S.touchSent = !!mine.touched;
+    resize();
+    buildRoundHUD();
 
-    if (S.winner) {
-      if (S.winner.id === S.myId) showWin('self');
-      else showWin('announce', S.winner.name);
-    } else {
-      winOverlay.hidden = true;
+    if (S.phase === 'round') {
+      if (mine.roundCorrect) {
+        renderSolvedModal();
+      } else if (mine.touched) {
+        openModal();
+        if (mine.frozenUntil > nowServer()) startFreeze(mine.frozenUntil);
+      }
+    } else if (S.phase === 'review' && S.roundEndInfo) {
+      renderReview(S.roundEndInfo);
+    } else if (S.phase === 'classroom') {
+      if (S.role === 'host') {
+        renderClassroom();
+        if (S.revealed !== null && S.revealed !== undefined) renderReveal(S.revealed, S.correctIdx);
+        else btnNextClass.hidden = true;
+      } else {
+        renderWait('VÒNG KẾT THÚC', 'Chủ phòng đang trình bày câu hỏi cho cả lớp…');
+      }
+    } else if (S.phase === 'gameover') {
+      renderGameover(null);
+    }
+    netBanner.hidden = true;
+  }
+
+  function handleRoom(msg) {
+    if (msg.serverNow) S.timeOffset = msg.serverNow - Date.now();
+    const oldRole = S.role;
+    S.hostId = msg.hostId;
+    S.minPlayers = msg.minPlayers;
+    S.phase = msg.phase;
+    S.round = msg.round;
+    S.correctCount = msg.correctCount;
+    S.revealed = msg.revealed;
+    S.correctIdx = msg.correctIdx;
+    S.endsAt = msg.endsAt || S.endsAt;
+    if (msg.roundEndInfo) S.roundEndInfo = msg.roundEndInfo;
+    syncRole();
+    syncRoster(msg.players);
+    if (S.phase === 'lobby') { enterLobby(); return; }
+    updateRoleUI();
+    updateLeaderboard();
+    updateStatusChip();
+    if (oldRole !== S.role) {
+      closeModal(true);
+      if (S.phase === 'review') renderReview(S.roundEndInfo);
+      if (S.phase === 'classroom') {
+        renderClassroom();
+        if (S.revealed !== null) renderReveal(S.revealed, S.correctIdx);
+      }
+      if (S.phase === 'gameover') renderGameover(null);
     }
   }
 
-  function handleRestart(msg) {
-    const oldKey = S.gameId ? storageKey() : null;
-    if (oldKey) {
-      try {
-        localStorage.removeItem(oldKey);
-      } catch (e) {}
+  function handleRound(msg) {
+    S.phase = 'round';
+    S.round = msg.round;
+    S.questionIdx = msg.questionIdx;
+    S.grid = parseMaze(msg.maze);
+    S.W = S.grid[0].length;
+    S.H = S.grid.length;
+    S.treasure = msg.treasure;
+    S.treasureFound = false;
+    S.endsAt = msg.endsAt;
+    S.timeOffset = msg.serverNow - Date.now();
+    S.eliminations = new Set(msg.eliminations || []);
+    S.correctCount = msg.correctCount || 0;
+    S.revealed = null;
+    S.roundEndInfo = null;
+    S.touchSent = false;
+    syncRoster(msg.players);
+    setMeAt(msg.spawn.x, msg.spawn.y);
+    const p = myEntry();
+    if (p) {
+      p.touched = false;
+      p.roundCorrect = false;
+      p.frozenUntil = 0;
     }
-    S.gameId = msg.gameId;
-    S.collected.clear();
-    dismissed.clear();
-    S.winner = null;
-    if (msg.players) {
-      for (const p of msg.players) {
-        if (p.id === S.myId) continue;
-        const rp = S.players.get(p.id);
-        if (rp) rp.progress = p.progress || 0;
+    stopFreeze();
+    closeModal(true);
+    hideOverlaysExcept(null);
+    S.feed = [];
+    if (S.role === 'host') addFeed('VÒNG ' + S.round + ' BẮT ĐẦU');
+    gameEl.hidden = false;
+    lobbyScreen.hidden = true;
+    resize();
+    buildRoundHUD();
+    S.cam.x = me.x;
+    S.cam.y = me.y;
+    toast('VÒNG ' + S.round + ' — vuốt (hoặc phím) để di chuyển');
+  }
+
+  function handleTouchEvent(msg) {
+    S.touchSent = S.touchSent || msg.id === S.myId;
+    const visitor = S.players.get(msg.id);
+    if (visitor) visitor.touched = true;
+    if (msg.first) {
+      S.treasureFound = true;
+      const p = S.players.get(msg.id);
+      if (p) p.score = msg.score;
+      addFeed((nameOf(msg.id) || 'Ai đó') + ' TÌM THẤY RƯƠNG');
+      if (msg.id !== S.myId) toast(nameOf(msg.id) + ' đã tìm thấy rương');
+      updateLeaderboard();
+      if (S.modalOpen) renderOptions();
+    } else if (msg.id !== S.myId) {
+      addFeed(nameOf(msg.id) + ' ĐẾN RƯƠNG');
+    }
+  }
+
+  function handleTouchAck(msg) {
+    if (!msg.ok) {
+      S.touchSent = false;
+      return;
+    }
+    S.touchSent = true;
+    S.eliminations = new Set(msg.eliminations || []);
+    if (msg.first) {
+      S.treasureFound = true;
+      const p = myEntry();
+      if (p) p.score = msg.score;
+      updateLeaderboard();
+      updateStatusChip();
+    }
+    const p = myEntry();
+    if (p) p.touched = true;
+
+    if (p && p.roundCorrect) {
+      toast('Bạn đã trả lời đúng rồi — chờ hết vòng');
+      return;
+    }
+    if (S.phase !== 'round') return;
+    openModal();
+    if (msg.first && S.role !== 'host') {
+      questionFeedback.hidden = false;
+      questionFeedback.innerHTML = '';
+      const strong = document.createElement('strong');
+      strong.textContent = 'BẠN LÀ NGƯỜI ĐẦU TIÊN';
+      const body = document.createElement('span');
+      body.textContent = 'Hệ thống đã tự động loại 2 đáp án sai cho bạn.';
+      questionFeedback.appendChild(strong);
+      questionFeedback.appendChild(body);
+    }
+    if (p && p.frozenUntil > nowServer()) startFreeze(p.frozenUntil);
+  }
+
+  function handleWrong(msg) {
+    const p = S.players.get(msg.id);
+    if (p) {
+      p.score = msg.score;
+      p.roundWrong = msg.roundWrong;
+      p.frozenUntil = msg.until;
+    }
+    if (msg.id === S.myId) {
+      if (msg.eliminations) S.eliminations = new Set(msg.eliminations);
+      else S.eliminations.add(msg.option);
+    }
+    addFeed(nameOf(msg.id) + ' TRẢ LỜI SAI — ĐÓNG BĂNG 7s');
+    if (msg.id === S.myId) {
+      questionFeedback.hidden = false;
+      questionFeedback.innerHTML = '';
+      const strong = document.createElement('strong');
+      strong.textContent = 'SAI — ĐIỂM ' + msg.score;
+      const body = document.createElement('span');
+      body.textContent = 'Đáp án này không đúng. Bạn bị đóng băng 7 giây.';
+      questionFeedback.appendChild(strong);
+      questionFeedback.appendChild(body);
+      questionCard.classList.remove('shake');
+      void questionCard.offsetWidth;
+      questionCard.classList.add('shake');
+      renderOptions();
+      startFreeze(msg.until);
+      toast('SAI — bị đóng băng 7 giây (' + msg.penalty + ' điểm)');
+    } else {
+      toast(nameOf(msg.id) + ' trả lời sai');
+    }
+    updateLeaderboard();
+    updateStatusChip();
+  }
+
+  function handleCorrect(msg) {
+    const p = S.players.get(msg.id);
+    if (p) {
+      p.score = msg.score;
+      p.roundCorrect = true;
+    }
+    S.correctCount = msg.correctCount;
+    addFeed(nameOf(msg.id) + ' TRẢ LỜI ĐÚNG +' + msg.points);
+    if (msg.id === S.myId) {
+      stopFreeze();
+      S.modalOpen = true;
+      S.modalSolved = true;
+      renderSolvedModal(msg.points);
+      toast('CHÍNH XÁC — +' + msg.points + ' điểm');
+    } else {
+      toast(nameOf(msg.id) + ' trả lời đúng');
+    }
+    updateLeaderboard();
+    updateStatusChip();
+  }
+
+  function handleAnswerAck(msg) {
+    if (msg.eliminations) { S.eliminations = new Set(msg.eliminations); if (!S.modalSolved) renderOptions(); }
+    if (!msg.ok && S.modalOpen && !S.modalSolved) renderOptions();
+    if (msg.ok) return; // xu ly qua broadcast wrong/correct
+    const map = {
+      frozen: 'Bạn đang bị đóng băng',
+      eliminated: 'Đáp án này đã bị loại',
+      done: 'Bạn đã trả lời đúng rồi',
+      notouch: 'Hãy tới rương trước',
+      round: 'Vòng đã kết thúc',
+      badidx: 'Đáp án không hợp lệ',
+    };
+    toast(map[msg.reason] || 'Không hợp lệ');
+  }
+
+  function handleRoundEnd(msg) {
+    S.phase = msg.phase;
+    S.roundEndInfo = msg;
+    S.correctCount = msg.correctCount;
+    stopFreeze();
+    closeModal(true);
+    if (msg.phase === 'review') {
+      renderReview(msg);
+    } else {
+      // classroom
+      if (S.role === 'host') {
+        S.revealed = null;
+        renderClassroom();
+      } else {
+        renderWait('VÒNG ' + msg.round + ' KẾT THÚC', 'Chưa có ai trả lời đúng. Chủ phòng đang trình bày câu hỏi cho cả lớp…');
       }
     }
-    winOverlay.hidden = true;
-    questionOverlay.hidden = true;
-    S.modalOpen = false;
-    S.activeTreasure = null;
-    buildPips();
-    updateHUD();
-    toast('Ván mới đã bắt đầu');
   }
 
-  /* ------------------------------ HUD ------------------------------- */
-
-  function buildPips() {
-    pipsEl.innerHTML = '';
-    const n = Math.max(10, S.treasures.length || 10);
-    for (let i = 0; i < n; i++) {
-      const span = document.createElement('span');
-      span.className = 'pip' + (i < S.collected.size ? ' on' : '');
-      pipsEl.appendChild(span);
-    }
-    progressText.textContent = S.collected.size + '/10';
+  function renderReveal(picked, correctIdx) {
+    S.revealed = picked;
+    S.correctIdx = correctIdx;
+    if (S.role !== 'host' || S.phase !== 'classroom') return;
+    const q = QUESTIONS[S.questionIdx];
+    Array.from(classroomOptions.children).forEach((btn, i) => {
+      btn.disabled = true;
+      if (i === correctIdx) btn.classList.add('correct');
+      if (i === picked && picked !== correctIdx) {
+        btn.classList.add('wrong');
+        btn.style.textDecoration = 'line-through';
+      }
+      if (i === picked && picked === correctIdx) btn.classList.add('picked');
+    });
+    classroomResult.hidden = false;
+    const letter = ['A', 'B', 'C', 'D'][correctIdx];
+    classroomResult.textContent =
+      picked === correctIdx
+        ? 'CHỌN ' + letter + ' — ĐÚNG! Đáp án: ' + letter + '. ' + q.options[correctIdx]
+        : 'CHỌN ' + ['A', 'B', 'C', 'D'][picked] + ' — SAI. Đáp án đúng: ' + letter + '. ' + q.options[correctIdx];
+    btnNextClass.hidden = false;
+    classroomKicker.textContent = 'ĐÃ HIỂN THỊ ĐÁP ÁN';
   }
 
-  function updateHUD() {
-    const pips = pipsEl.children;
-    for (let i = 0; i < pips.length; i++) {
-      pips[i].classList.toggle('on', i < S.collected.size);
+  function handleGameover(msg) {
+    S.phase = 'gameover';
+    renderGameover(msg.leaderboard);
+  }
+
+  /* ------------------------------ lobby ----------------------------- */
+
+  function nameOf(id) {
+    const p = S.players.get(id);
+    return p ? p.name : '';
+  }
+
+  function updateRoleUI() {
+    syncRole();
+    const isHost = S.role === 'host';
+    roleBadge.textContent = isHost ? 'BẠN LÀ CHỦ PHÒNG' : 'NGƯỜI CHƠI';
+    roleBadge.classList.toggle('plain', !isHost);
+    lobbyTitle.textContent = isHost ? 'PHÒNG CHỜ' : 'CHỜ BẮT ĐẦU';
+    minControls.hidden = !isHost;
+    startBtnLobby.hidden = !isHost;
+    lobbyHint.hidden = isHost;
+    lobbyMinLabel.textContent = '/ ' + S.minPlayers + ' NGƯỜI';
+    minValue.textContent = String(S.minPlayers);
+    lobbyCount.textContent = String(playerCountView());
+    const ready = playerCountView() >= S.minPlayers;
+    startBtnLobby.disabled = !ready;
+    lobbyHint.textContent = 'Cần ít nhất ' + S.minPlayers + ' người để bắt đầu';
+    leaderTitle.textContent = isHost ? 'AI DẪN ĐẦU' : 'ĐIỂM';
+    document.querySelector('.minimap-wrap').hidden = true;
+    gameEl.classList.toggle('host-mode', isHost);
+    hostFeed.hidden = !isHost;
+    playerStatus.hidden = isHost;
+  }
+
+  function enterLobby() {
+    hideOverlaysExcept(null);
+    gameEl.hidden = true;
+    lobbyScreen.hidden = false;
+    updateRoleUI();
+    renderLobbyList();
+  }
+
+  function renderLobbyList() {
+    lobbyPlayers.innerHTML = '';
+    let i = 1;
+    for (const p of S.players.values()) {
+      const li = document.createElement('li');
+      if (p.id === S.myId) li.className = 'me';
+      const name = document.createElement('span');
+      name.textContent = p.name;
+      li.appendChild(name);
+      if (p.id === S.hostId) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = 'CHỦ PHÒNG';
+        li.appendChild(tag);
+      }
+      lobbyPlayers.appendChild(li);
+      i++;
     }
-    progressText.textContent = S.collected.size + '/10';
-    onlineChip.textContent = S.players.size + 1 + ' NGƯỜI CHƠI';
+    lobbyCount.textContent = String(playerCountView());
+    if (S.role === 'host') startBtnLobby.disabled = playerCountView() < S.minPlayers;
+    else lobbyHint.textContent = 'Cần ít nhất ' + S.minPlayers + ' người để bắt đầu';
+  }
+
+  startBtnLobby.addEventListener('click', () => send({ t: 'host', action: 'start' }));
+  minUp.addEventListener('click', () => {
+    S.minPlayers = Math.min(100, S.minPlayers + 1);
+    send({ t: 'host', action: 'min', value: S.minPlayers });
+    updateRoleUI();
+  });
+  minDown.addEventListener('click', () => {
+    S.minPlayers = Math.max(1, S.minPlayers - 1);
+    send({ t: 'host', action: 'min', value: S.minPlayers });
+    updateRoleUI();
+  });
+
+  /* -------------------------- round HUD / UI ------------------------ */
+
+  function buildRoundHUD() {
+    hudRound.textContent = 'VÒNG ' + S.round + ' / ' + S.totalRounds;
     updateLeaderboard();
+    updateStatusChip();
   }
 
   function updateLeaderboard() {
-    const list = [{ id: S.myId, name: S.name || 'Bạn', progress: S.collected.size, me: true }];
-    for (const [id, p] of S.players) {
-      list.push({ id, name: p.name, progress: p.progress, me: false });
-    }
-    list.sort((a, b) => b.progress - a.progress || a.name.localeCompare(b.name));
-    leaderboardEl.innerHTML = '';
-    list.slice(0, 8).forEach((entry, i) => {
+    const list = Array.from(S.players.values()).filter(p => p.id !== S.hostId).sort(
+      (a, b) => b.score - a.score || b.totalCorrect - a.totalCorrect || a.name.localeCompare(b.name)
+    );
+    renderBoard(leaderboardEl, list, { compact: true, max: 6, badges: true });
+  }
+
+  function renderBoard(el, list, opts) {
+    el.innerHTML = '';
+    const max = (opts && opts.max) || list.length;
+    list.slice(0, max).forEach((e, i) => {
       const li = document.createElement('li');
-      if (entry.me) li.className = 'me';
+      if (e.id === S.myId) li.className = 'me';
+      else if (i === 0) li.className = 'top1';
       const rank = document.createElement('span');
       rank.className = 'lb-rank';
       rank.textContent = String(i + 1).padStart(2, '0');
       const name = document.createElement('span');
       name.className = 'lb-name';
-      name.textContent = entry.name;
-      const count = document.createElement('span');
-      count.className = 'lb-count';
-      count.textContent = entry.progress + '/10';
+      name.textContent = e.name;
       li.appendChild(rank);
       li.appendChild(name);
-      li.appendChild(count);
-      leaderboardEl.appendChild(li);
+      if (opts && opts.badges && S.phase === 'round') {
+        if (e.roundCorrect) {
+          const b = document.createElement('span');
+          b.className = 'lb-badge';
+          b.textContent = 'ĐÚNG';
+          li.appendChild(b);
+        } else if (e.frozenUntil > nowServer()) {
+          const b = document.createElement('span');
+          b.className = 'lb-badge';
+          b.textContent = 'ĐÓNG BĂNG';
+          li.appendChild(b);
+        }
+      }
+      if (opts && opts.delta && typeof e.delta === 'number') {
+        const d = document.createElement('span');
+        d.className = 'lb-delta';
+        d.textContent = (e.delta >= 0 ? '+' : '') + e.delta;
+        li.appendChild(d);
+      }
+      const score = document.createElement('span');
+      score.className = 'lb-score';
+      score.textContent = String(e.score);
+      li.appendChild(score);
+      el.appendChild(li);
     });
   }
 
-  /* ---------------------------- win overlay ------------------------- */
-
-  function showWin(kind, otherName) {
-    if (kind === 'self') {
-      winKicker.textContent = 'BẠN ĐÃ HOÀN THÀNH';
-      winTitle.textContent = 'CHIẾN THẮNG';
-      winSub.textContent = 'Bạn đã tìm đủ 10 kho báu và trả lời đúng 10 câu hỏi.';
-      btnContinue.hidden = true;
+  function updateStatusChip() {
+    const p = myEntry();
+    if (!p) return;
+    myScoreEl.textContent = String(p.score);
+    myStateEl.classList.remove('freeze');
+    const remain = p.frozenUntil - nowServer();
+    if (S.phase !== 'round') {
+      myStateEl.textContent = 'ĐỢI VÒNG TIẾP THEO';
+    } else if (!p.spawned) {
+      myStateEl.textContent = 'CHỜ VÒNG TIẾP THEO';
+    } else if (p.roundCorrect) {
+      myStateEl.textContent = 'ĐÃ TRẢ LỜI ĐÚNG — CHỜ HẾT VÒNG';
+    } else if (remain > 0) {
+      myStateEl.textContent = 'ĐÓNG BĂNG ' + Math.ceil(remain / 1000) + 's';
+      myStateEl.classList.add('freeze');
+    } else if (p.touched) {
+      myStateEl.textContent = 'ĐANG TRẢ LỜI CÂU HỎI';
     } else {
-      winKicker.textContent = 'CÓ NGƯỜI THẮNG RỒI';
-      winTitle.textContent = otherName ? otherName.toUpperCase() + ' THẮNG' : 'HẾT VÁN';
-      winSub.textContent =
-        (otherName || 'Người chơi') + ' đã tìm đủ 10 kho báu trước. Bạn vẫn có thể tiếp tục khám phá mê cung.';
-      btnContinue.hidden = false;
+      myStateEl.textContent = 'ĐANG TÌM RƯƠNG';
     }
-    winOverlay.hidden = false;
   }
 
-  btnContinue.addEventListener('click', () => {
-    winOverlay.hidden = true;
-  });
-  btnPlayAgain.addEventListener('click', () => {
-    send({ type: 'restart' });
-    winOverlay.hidden = true;
-  });
-
-  /* --------------------------- restart button ----------------------- */
-
-  let restartArmed = false;
-  let restartArmTimer = null;
-  restartBtn.addEventListener('click', () => {
-    if (!restartArmed) {
-      restartArmed = true;
-      restartBtn.classList.add('armed');
-      restartBtn.textContent = 'XÁC NHẬN?';
-      clearTimeout(restartArmTimer);
-      restartArmTimer = setTimeout(disarmRestart, 3000);
-      return;
-    }
-    disarmRestart();
-    send({ type: 'restart' });
-  });
-  function disarmRestart() {
-    restartArmed = false;
-    restartBtn.classList.remove('armed');
-    restartBtn.textContent = 'VÁN MỚI';
-    clearTimeout(restartArmTimer);
+  function addFeed(text) {
+    S.feed.unshift(text);
+    if (S.feed.length > 6) S.feed.pop();
+    renderFeed();
   }
 
-  /* --------------------------- question modal ----------------------- */
+  function renderFeed() {
+    feedList.innerHTML = '';
+    for (const line of S.feed) {
+      const li = document.createElement('li');
+      li.textContent = line;
+      feedList.appendChild(li);
+    }
+  }
 
-  function openQuestion(t) {
-    if (S.modalOpen || S.collected.size >= 10 || dismissed.has(t.id)) return;
-    const q = QUESTIONS[t.q];
-    if (!q) return;
+  /* ----------------------------- overlays --------------------------- */
+
+  function closeModal(force) {
+    S.modalOpen = false;
+    if (force || S.modalSolved) {
+      questionOverlay.hidden = true;
+      S.modalSolved = false;
+      questionCard.classList.remove('solved');
+    }
+  }
+
+  function openModal() {
+    if (S.modalSolved) return;
     S.modalOpen = true;
-    S.activeTreasure = t;
-    questionTag.textContent = 'CÂU ' + (t.q + 1) + ' / 10';
+    questionCard.classList.remove('solved');
+    questionTag.textContent = 'CÂU ' + (S.questionIdx + 1) + ' / ' + S.totalRounds;
+    questionSub.textContent = 'CHỌN 1 ĐÁP ÁN';
+    const q = QUESTIONS[S.questionIdx];
     questionText.textContent = q.text;
     questionFeedback.hidden = true;
     questionFeedback.innerHTML = '';
+    freezeBox.hidden = true;
+    renderOptions();
+    questionOverlay.hidden = false;
+  }
+
+  function renderOptions() {
+    const q = QUESTIONS[S.questionIdx];
     questionOptions.innerHTML = '';
+    const letters = ['A', 'B', 'C', 'D'];
+    const frozen = myEntry() && myEntry().frozenUntil > nowServer();
+    q.options.forEach((opt, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'q-opt';
+      const eliminated = S.eliminations.has(idx);
+      if (eliminated) btn.classList.add('eliminated');
+      const badge = document.createElement('span');
+      badge.className = 'q-letter';
+      badge.textContent = letters[idx];
+      const text = document.createElement('span');
+      text.textContent = opt;
+      btn.appendChild(badge);
+      btn.appendChild(text);
+      if (eliminated || frozen) btn.disabled = true;
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        send({ t: 'answer', idx });
+        Array.from(questionOptions.children).forEach((el) => (el.disabled = true));
+        questionSub.textContent = 'ĐANG CHỜ…';
+      });
+      questionOptions.appendChild(btn);
+    });
+    questionSub.textContent = frozen ? 'ĐANG ĐÓNG BĂNG' : 'CHỌN 1 ĐÁP ÁN';
+  }
+
+  function startFreeze(until) {
+    S.freezeUntil = until;
+    freezeBox.hidden = false;
+    updateStatusChip();
+    if (S.freezeTimer) return;
+    const tick = () => {
+      const remain = S.freezeUntil - nowServer();
+      if (remain <= 0 || S.phase !== 'round') {
+        stopFreeze();
+        if (S.modalOpen && !S.modalSolved) {
+          freezeBox.hidden = true;
+          renderOptions();
+        }
+        updateStatusChip();
+        return;
+      }
+      freezeNum.textContent = String(Math.ceil(remain / 1000));
+      updateStatusChip();
+      S.freezeTimer = setTimeout(tick, 150);
+    };
+    tick();
+  }
+
+  function stopFreeze() {
+    clearTimeout(S.freezeTimer);
+    S.freezeTimer = null;
+    S.freezeUntil = 0;
+    freezeBox.hidden = true;
+  }
+
+  function renderSolvedModal(points) {
+    S.modalOpen = true;
+    S.modalSolved = true;
+    questionCard.classList.add('solved');
+    questionCard.classList.remove('shake');
+    questionTag.textContent = 'CÂU ' + (S.questionIdx + 1) + ' / ' + S.totalRounds;
+    questionSub.textContent = '';
+    questionText.textContent = '';
+    questionFeedback.hidden = true;
+    freezeBox.hidden = true;
+    questionOptions.innerHTML = '';
+    const p = myEntry();
+    const box = document.createElement('div');
+    box.className = 'solved-box';
+    const t = document.createElement('div');
+    t.className = 'solved-title';
+    t.textContent = 'CHÍNH XÁC';
+    box.appendChild(t);
+    if (points !== undefined) {
+      const pts = document.createElement('div');
+      pts.className = 'solved-points';
+      pts.textContent = '+' + points + ' ĐIỂM';
+      box.appendChild(pts);
+    }
+    const sub = document.createElement('div');
+    sub.className = 'solved-sub';
+    sub.textContent = 'Vòng kết thúc khi ' + S.maxCorrect + ' người trả lời đúng hoặc hết 60 giây. Bạn đã xong — chờ tới hết vòng.';
+    box.appendChild(sub);
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-solid';
+    btn.type = 'button';
+    btn.textContent = 'XEM MAP';
+    btn.addEventListener('click', () => closeModal(true));
+    box.appendChild(btn);
+    questionOptions.appendChild(box);
+    questionOverlay.hidden = false;
+  }
+
+  function optionRow(q, idx, opts) {
+    const row = document.createElement('div');
+    row.className = 'review-opt';
+    if (opts && opts.isAnswer) row.classList.add('is-answer');
+    if (opts && opts.isElim) row.classList.add('is-elim');
+    const letter = document.createElement('span');
+    letter.className = 'q-letter';
+    letter.textContent = ['A', 'B', 'C', 'D'][idx];
+    const text = document.createElement('span');
+    text.textContent = q.options[idx];
+    row.appendChild(letter);
+    row.appendChild(text);
+    return row;
+  }
+
+  function renderReview(info) {
+    const isHost = S.role === 'host';
+    reviewKicker.textContent = 'KẾT QUẢ VÒNG ' + info.round;
+    // nguoi dung vong
+    reviewWinners.innerHTML = '';
+    for (const w of info.winners || []) {
+      const chip = document.createElement('span');
+      chip.className = 'winner-chip';
+      chip.textContent = w.name + ' TRẢ LỜI ĐÚNG';
+      const b = document.createElement('b');
+      b.textContent = (w.delta >= 0 ? '+' : '') + w.delta;
+      chip.appendChild(b);
+      reviewWinners.appendChild(chip);
+    }
+    if (!(info.winners || []).length) {
+      const chip = document.createElement('span');
+      chip.className = 'winner-chip';
+      chip.textContent = 'CHƯA AI TRẢ LỜI ĐÚNG';
+      reviewWinners.appendChild(chip);
+    }
+    // cau hoi + dap an dung
+    const q = { ...QUESTIONS[info.questionIdx], answer: info.correctIdx }; 
+    reviewQuestion.innerHTML = '';
+    const qt = document.createElement('div');
+    qt.className = 'review-q-text';
+    qt.textContent = q.text;
+    reviewQuestion.appendChild(qt);
+    const opts = document.createElement('div');
+    opts.className = 'review-opts';
+    for (let i = 0; i < q.options.length; i++) {
+      opts.appendChild(optionRow(q, i, { isAnswer: i === q.answer, isElim: S.eliminations.has(i) && i !== q.answer }));
+    }
+    reviewQuestion.appendChild(opts);
+    if (info.note) { const note = document.createElement('p'); note.textContent = info.note; reviewQuestion.appendChild(note); }
+    // bang xep hang tai thoi diem ket thuc
+    renderBoard(reviewBoard, info.leaderboard || [], { delta: true, badges: false });
+    btnNextReview.hidden = !isHost;
+    waitNextReview.hidden = isHost;
+    hideOverlaysExcept(reviewOverlay);
+    reviewOverlay.hidden = false;
+  }
+
+  function renderClassroom() {
+    const q = QUESTIONS[S.questionIdx];
+    classroomKicker.textContent = 'HẾT GIỜ — CHƯA AI TRẢ LỜI ĐÚNG';
+    classroomQ.textContent = q.text;
+    classroomOptions.innerHTML = '';
+    classroomResult.hidden = true;
+    btnNextClass.hidden = true;
     const letters = ['A', 'B', 'C', 'D'];
     q.options.forEach((opt, idx) => {
       const btn = document.createElement('button');
@@ -487,253 +979,286 @@
       text.textContent = opt;
       btn.appendChild(badge);
       btn.appendChild(text);
-      btn.addEventListener('click', () => answerOption(t, q, idx, btn));
-      questionOptions.appendChild(btn);
-    });
-    questionOverlay.hidden = false;
-  }
-
-  function answerOption(t, q, idx, btn) {
-    if (btn.disabled) return;
-    if (idx === q.answer) {
-      // correct
-      Array.from(questionOptions.children).forEach((el) => {
-        el.disabled = true;
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        send({ t: 'host', action: 'reveal', value: idx });
+        Array.from(classroomOptions.children).forEach((el) => (el.disabled = true));
       });
-      btn.classList.add('correct');
-      const letter = ['A', 'B', 'C', 'D'][idx];
-      questionFeedback.hidden = false;
-      questionFeedback.innerHTML = '';
-      const strong = document.createElement('strong');
-      strong.textContent = 'CHÍNH XÁC';
-      const body = document.createElement('span');
-      body.textContent = 'Đáp án: ' + letter + '. ' + q.options[idx] + (q.note ? ' — ' + q.note : '');
-      questionFeedback.appendChild(strong);
-      questionFeedback.appendChild(body);
-      setTimeout(() => {
-        collectTreasure(t);
-        closeQuestion();
-      }, 950);
-    } else {
-      btn.disabled = true;
-      btn.classList.add('wrong');
-      questionFeedback.hidden = false;
-      questionFeedback.innerHTML = '';
-      const strong = document.createElement('strong');
-      strong.textContent = 'SAI — CHỌN LẠI';
-      questionFeedback.appendChild(strong);
-      const body = document.createElement('span');
-      body.textContent = 'Đáp án này chưa đúng. Hãy thử đáp án khác.';
-      questionFeedback.appendChild(body);
+      classroomOptions.appendChild(btn);
+    });
+    hideOverlaysExcept(classroomOverlay);
+    classroomOverlay.hidden = false;
+  }
+
+  function renderWait(title, sub) {
+    waitTitle.textContent = title;
+    waitSub.textContent = sub;
+    hideOverlaysExcept(waitOverlay);
+    waitOverlay.hidden = false;
+  }
+
+  function renderGameover(board) {
+    if (!board && S.roundEndInfo) board = null;
+    const list = (board || []).map((e) => ({ ...e }));
+    if (!list.length) {
+      for (const p of S.players.values()) {
+        if (p.id === S.hostId) continue;
+        list.push({
+          id: p.id,
+          name: p.name,
+          score: p.score,
+          totalCorrect: p.totalCorrect,
+          totalWrong: p.totalWrong,
+          bonus: p.totalCorrect >= S.totalRounds ? 200 : 0,
+        });
+      }
+      list.sort((a, b) => b.score - a.score);
     }
+    finalBoard.innerHTML = '';
+    list.forEach((e, i) => {
+      const li = document.createElement('li');
+      if (e.id === S.myId) li.className = 'me';
+      else if (i === 0) li.className = 'top1';
+      const rank = document.createElement('span');
+      rank.className = 'lb-rank';
+      rank.textContent = String(i + 1).padStart(2, '0');
+      const name = document.createElement('span');
+      name.className = 'lb-name';
+      name.textContent = e.name + (e.bonus ? ' (+200)' : '');
+      const detail = document.createElement('span');
+      detail.className = 'lb-delta';
+      detail.textContent = (e.totalCorrect || 0) + '/' + S.totalRounds + ' câu';
+      const score = document.createElement('span');
+      score.className = 'lb-score';
+      score.textContent = String(e.score);
+      li.appendChild(rank);
+      li.appendChild(name);
+      li.appendChild(detail);
+      li.appendChild(score);
+      finalBoard.appendChild(li);
+    });
+    const isHost = S.role === 'host';
+    btnAgain.hidden = !isHost;
+    waitAgain.hidden = isHost;
+    hideOverlaysExcept(gameoverOverlay);
+    gameoverOverlay.hidden = false;
   }
 
-  function closeQuestion() {
-    questionOverlay.hidden = true;
-    S.modalOpen = false;
-    S.activeTreasure = null;
-  }
-
-  questionLater.addEventListener('click', () => {
-    if (S.activeTreasure) dismissed.add(S.activeTreasure.id);
-    closeQuestion();
-  });
-
-  function collectTreasure(t) {
-    if (S.collected.has(t.id)) return;
-    S.collected.add(t.id);
-    saveCollected();
-    sendProgress();
-    updateHUD();
-    toast('Đã thu thập ' + S.collected.size + '/10 kho báu');
-    if (S.collected.size >= 10) {
-      S.winner = { id: S.myId, name: S.name };
-      showWin('self');
-    }
-  }
+  btnNextReview.addEventListener('click', () => send({ t: 'host', action: 'next' }));
+  btnNextClass.addEventListener('click', () => send({ t: 'host', action: 'next' }));
+  btnAgain.addEventListener('click', () => send({ t: 'host', action: 'again' }));
 
   /* ------------------------------ input ----------------------------- */
 
+  function canMove() {
+    if (S.phase !== 'round' || S.role === 'host' || S.modalOpen || S.touchSent) return false;
+    const p = myEntry();
+    if (!p || !p.spawned || p.roundCorrect || p.frozenUntil > nowServer()) return false;
+    return true;
+  }
+
+  function tryDash(dx, dy) {
+    if (!canMove()) return;
+    // dao nguoc ngay khi vuot nguoc huong
+    if (me.dir && me.dir.dx === -dx && me.dir.dy === -dy && me.progress > 0.02) {
+      const f = me.from;
+      me.from = me.to;
+      me.to = f;
+      me.dir = { dx, dy };
+      me.progress = 1 - me.progress;
+      me.queue = null;
+      me.fx = dx;
+      me.fy = dy;
+      return;
+    }
+    me.queue = { dx, dy };
+    if (!me.dir) stepDash(0);
+    me.fx = dx;
+    me.fy = dy;
+  }
+
+  function tileOpen(x, y) {
+    if (!S.grid || x < 0 || y < 0 || x >= S.W || y >= S.H) return false;
+    return S.grid[y][x] === '.';
+  }
+
+  function setMeAt(x, y) {
+    me.x = x;
+    me.y = y;
+    const cx = Math.round(x - 0.5);
+    const cy = Math.round(y - 0.5);
+    me.from = { cx, cy };
+    me.to = null;
+    me.dir = null;
+    me.queue = null;
+    me.progress = 0;
+    S.cam.x = x;
+    S.cam.y = y;
+  }
+
+  function stepDash(dt) {
+    let remaining = SPEED * dt;
+    let guard = 0;
+    while (guard++ < 128) {
+      if (!me.dir) {
+        if (!me.queue) return;
+        const q = me.queue;
+        if (tileOpen(me.from.cx + q.dx, me.from.cy + q.dy)) {
+          me.dir = q;
+          me.queue = null;
+          me.to = { cx: me.from.cx + q.dx, cy: me.from.cy + q.dy };
+          me.fx = q.dx;
+          me.fy = q.dy;
+        } else {
+          me.queue = null; // huong bi chan -> bo
+          return;
+        }
+        if (remaining <= 0) return;
+      }
+      const step = Math.min(remaining, 1 - me.progress);
+      me.progress += step;
+      remaining -= step;
+      if (me.progress >= 1 - 1e-9) {
+        me.progress = 0;
+        me.from = me.to;
+        // den giao lo: uu tien huong dang queue
+        if (me.queue && tileOpen(me.from.cx + me.queue.dx, me.from.cy + me.queue.dy)) {
+          me.dir = me.queue;
+          me.queue = null;
+          me.to = { cx: me.from.cx + me.dir.dx, cy: me.from.cy + me.dir.dy };
+          me.fx = me.dir.dx;
+          me.fy = me.dir.dy;
+        } else if (tileOpen(me.from.cx + me.dir.dx, me.from.cy + me.dir.dy)) {
+          me.to = { cx: me.from.cx + me.dir.dx, cy: me.from.cy + me.dir.dy };
+        } else {
+          me.dir = null;
+          me.to = null;
+        }
+      }
+      if (remaining <= 0) return;
+    }
+  }
+
+  function syncMePos() {
+    if (me.dir && me.to) {
+      me.x = me.from.cx + 0.5 + (me.to.cx - me.from.cx) * me.progress;
+      me.y = me.from.cy + 0.5 + (me.to.cy - me.from.cy) * me.progress;
+    } else if (me.from) {
+      me.x = me.from.cx + 0.5;
+      me.y = me.from.cy + 0.5;
+    }
+  }
+
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
-    if (
-      ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k) &&
-      S.started &&
-      !S.modalOpen
-    ) {
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k) && gameEl.hidden === false) {
       e.preventDefault();
     }
+    if (S.phase !== 'round') return;
+    if (k === 'arrowup' || k === 'w') tryDash(0, -1);
+    else if (k === 'arrowdown' || k === 's') tryDash(0, 1);
+    else if (k === 'arrowleft' || k === 'a') tryDash(-1, 0);
+    else if (k === 'arrowright' || k === 'd') tryDash(1, 0);
     keys.add(k);
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
 
   touchLayer.addEventListener('pointerdown', (e) => {
-    if (joy.active) return;
-    joy.active = true;
-    joy.pointerId = e.pointerId;
-    joy.ox = e.clientX;
-    joy.oy = e.clientY;
-    joy.vx = 0;
-    joy.vy = 0;
-    joyBase.hidden = false;
-    joyBase.style.left = joy.ox + 'px';
-    joyBase.style.top = joy.oy + 'px';
-    joyKnob.style.transform = 'translate(0px, 0px)';
+    swipe.active = true;
+    swipe.sent = false;
+    swipe.sx = e.clientX;
+    swipe.sy = e.clientY;
     try {
       touchLayer.setPointerCapture(e.pointerId);
     } catch (err) {}
   });
 
   touchLayer.addEventListener('pointermove', (e) => {
-    if (!joy.active || e.pointerId !== joy.pointerId) return;
-    const max = 52;
-    let dx = e.clientX - joy.ox;
-    let dy = e.clientY - joy.oy;
-    const len = Math.hypot(dx, dy);
-    if (len > max) {
-      dx = (dx / len) * max;
-      dy = (dy / len) * max;
-    }
-    joyKnob.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
-    const dead = 8;
-    if (len < dead) {
-      joy.vx = 0;
-      joy.vy = 0;
-    } else {
-      joy.vx = dx / max;
-      joy.vy = dy / max;
+    if (!swipe.active || swipe.sent) return;
+    const dx = e.clientX - swipe.sx;
+    const dy = e.clientY - swipe.sy;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_MIN) {
+      if (Math.abs(dx) > Math.abs(dy)) tryDash(Math.sign(dx), 0);
+      else tryDash(0, Math.sign(dy));
+      swipe.sent = true;
+      swipe.sx = e.clientX;
+      swipe.sy = e.clientY;
     }
   });
 
-  function endJoy(e) {
-    if (!joy.active || (e && e.pointerId !== joy.pointerId)) return;
-    joy.active = false;
-    joy.pointerId = null;
-    joy.vx = 0;
-    joy.vy = 0;
-    joyBase.hidden = true;
-  }
-  touchLayer.addEventListener('pointerup', endJoy);
-  touchLayer.addEventListener('pointercancel', endJoy);
-
-  function readMoveInput() {
-    let vx = joy.vx;
-    let vy = joy.vy;
-    if (keys.has('arrowleft') || keys.has('a')) vx -= 1;
-    if (keys.has('arrowright') || keys.has('d')) vx += 1;
-    if (keys.has('arrowup') || keys.has('w')) vy -= 1;
-    if (keys.has('arrowdown') || keys.has('s')) vy += 1;
-    const len = Math.hypot(vx, vy);
-    if (len > 1) {
-      vx /= len;
-      vy /= len;
+  function endSwipe(e) {
+    if (!swipe.active) return;
+    swipe.active = false;
+    if (!e || swipe.sent) return;
+    const dx = e.clientX - swipe.sx;
+    const dy = e.clientY - swipe.sy;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_MIN) {
+      if (Math.abs(dx) > Math.abs(dy)) tryDash(Math.sign(dx), 0);
+      else tryDash(0, Math.sign(dy));
     }
-    return { vx, vy };
   }
-
-  /* ---------------------------- collision --------------------------- */
-
-  function tileAt(gx, gy) {
-    if (gx < 0 || gy < 0 || gx >= S.W || gy >= S.H) return '#';
-    return S.grid[gy][gx];
-  }
-
-  function blocked(x, y) {
-    const minX = Math.floor(x - PLAYER_R);
-    const maxX = Math.floor(x + PLAYER_R);
-    const minY = Math.floor(y - PLAYER_R);
-    const maxY = Math.floor(y + PLAYER_R);
-    for (let gy = minY; gy <= maxY; gy++) {
-      for (let gx = minX; gx <= maxX; gx++) {
-        if (tileAt(gx, gy) !== '#') continue;
-        const cx = Math.max(gx, Math.min(x, gx + 1));
-        const cy = Math.max(gy, Math.min(y, gy + 1));
-        const dx = x - cx;
-        const dy = y - cy;
-        if (dx * dx + dy * dy < PLAYER_R * PLAYER_R) return true;
-      }
-    }
-    return false;
-  }
+  touchLayer.addEventListener('pointerup', endSwipe);
+  touchLayer.addEventListener('pointercancel', () => (swipe.active = false));
 
   /* ------------------------------ update ---------------------------- */
 
   let lastStateSent = 0;
+  let lastSentX = -1;
+  let lastSentY = -1;
 
   function update(dt, now) {
-    if (!S.grid) return;
+    if (S.phase !== 'round' || !S.grid) return;
 
-    if (!S.modalOpen) {
-      const { vx, vy } = readMoveInput();
-      const moving = Math.hypot(vx, vy) > 0.05;
-      if (moving) {
-        S.me.fx = vx;
-        S.me.fy = vy;
-        const nx = S.me.x + vx * SPEED * dt;
-        if (!blocked(nx, S.me.y)) S.me.x = nx;
-        const ny = S.me.y + vy * SPEED * dt;
-        if (!blocked(S.me.x, ny)) S.me.y = ny;
-      }
-    }
+    if (canMove()) stepDash(dt);
+    syncMePos();
 
-    // camera with slight look-ahead
-    const targetX = S.me.x + S.me.fx * 1.1;
-    const targetY = S.me.y + S.me.fy * 1.1;
+    // camera keo theo + nhin toi huong di
     const lerp = 1 - Math.exp(-dt * 7);
-    S.cam.x += (targetX - S.cam.x) * lerp;
-    S.cam.y += (targetY - S.cam.y) * lerp;
+    S.cam.x += (me.x + me.fx * 0.9 - S.cam.x) * lerp;
+    S.cam.y += (me.y + me.fy * 0.9 - S.cam.y) * lerp;
 
-    // smooth remote interpolation
+    // interpolate remote
+    const k = 1 - Math.exp(-dt * 11);
     for (const p of S.players.values()) {
-      const k = 1 - Math.exp(-dt * 11);
+      if (p.id === S.myId) continue;
+      if (p.tx === undefined) continue;
       p.x += (p.tx - p.x) * k;
       p.y += (p.ty - p.y) * k;
     }
 
-    // explored tiles around player
-    const px = Math.floor(S.me.x);
-    const py = Math.floor(S.me.y);
-    const rad = 8;
-    for (let gy = py - rad; gy <= py + rad; gy++) {
-      for (let gx = px - rad; gx <= px + rad; gx++) {
-        if (gx < 0 || gy < 0 || gx >= S.W || gy >= S.H) continue;
-        const ddx = gx + 0.5 - S.me.x;
-        const ddy = gy + 0.5 - S.me.y;
-        if (ddx * ddx + ddy * ddy <= rad * rad) S.explored[gy * S.W + gx] = 1;
+    // gui vi tri
+    if (S.role !== 'host' && now - lastStateSent > 66) {
+      const moved = Math.abs(me.x - lastSentX) + Math.abs(me.y - lastSentY) > 0.001;
+      if (moved) {
+        lastSentX = me.x;
+        lastSentY = me.y;
+        send({ t: 'state', x: me.x, y: me.y, fx: me.fx, fy: me.fy });
       }
+      lastStateSent = now;
     }
 
-    // dismissed treasures re-open only after walking away again
-    for (const id of Array.from(dismissed)) {
-      const t = S.treasures[id];
-      if (!t) {
-        dismissed.delete(id);
-        continue;
-      }
-      if (Math.hypot(t.x - S.me.x, t.y - S.me.y) > 1.5) dismissed.delete(id);
-    }
-
-    // treasure proximity -> open question
-    if (!S.modalOpen && S.collected.size < 10) {
-      for (const t of S.treasures) {
-        if (S.collected.has(t.id) || dismissed.has(t.id)) continue;
-        const d = Math.hypot(t.x - S.me.x, t.y - S.me.y);
-        if (d < TREASURE_OPEN_R) {
-          openQuestion(t);
-          break;
+    // cham ruong -> mo cau hoi
+    if (S.role !== 'host' && S.treasure && !S.touchSent) {
+      const p = myEntry();
+      if (p && p.spawned && !p.roundCorrect) {
+        const d = Math.hypot(S.treasure.x - me.x, S.treasure.y - me.y);
+        if (d < TOUCH_R) {
+          S.touchSent = true;
+          send({ t: 'state', x: me.x, y: me.y, fx: me.fx, fy: me.fy });
+          send({ t: 'touch' });
         }
       }
-    }
-
-    // network state
-    if (now - lastStateSent > STATE_INTERVAL) {
-      lastStateSent = now;
-      sendState();
     }
   }
 
   /* ------------------------------ render ---------------------------- */
+
+  function parseMaze(rows) {
+    S.W = rows[0].length;
+    S.H = rows.length;
+    return rows;
+  }
 
   function resize() {
     S.dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -742,13 +1267,9 @@
     canvas.width = Math.round(S.viewW * S.dpr);
     canvas.height = Math.round(S.viewH * S.dpr);
     ctx.setTransform(S.dpr, 0, 0, S.dpr, 0, 0);
-
     const shortSide = Math.min(S.viewW, S.viewH);
     S.tilePx = Math.max(34, Math.min(56, shortSide / 10));
-
-    labelFont = '600 11px ' + getComputedStyle(document.body).fontFamily;
-
-    // minimap
+    S.labelFont = '600 11px ' + getComputedStyle(document.body).fontFamily;
     const mr = minimap.getBoundingClientRect();
     minimap.width = Math.round(mr.width * S.dpr);
     minimap.height = Math.round(mr.height * S.dpr);
@@ -770,21 +1291,17 @@
   function drawGem(sx, sy, size, pulse) {
     ctx.save();
     ctx.translate(sx, sy);
-
-    // ground shadow
     ctx.beginPath();
     ctx.ellipse(0, size * 0.5, size * 0.3, size * 0.09, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.14)';
     ctx.fill();
-
     if (pulse > 0) {
       ctx.beginPath();
-      ctx.arc(0, 0, size * (0.62 + pulse * 0.14), 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(0,0,0,' + (0.35 - pulse * 0.2).toFixed(3) + ')';
+      ctx.arc(0, 0, size * (0.62 + pulse * 0.16), 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0,0,0,' + (0.4 - pulse * 0.22).toFixed(3) + ')';
       ctx.lineWidth = 2;
       ctx.stroke();
     }
-
     const r = size * 0.42;
     ctx.beginPath();
     ctx.moveTo(0, -r);
@@ -797,8 +1314,6 @@
     ctx.lineWidth = Math.max(2, size * 0.07);
     ctx.strokeStyle = '#0a0a0a';
     ctx.stroke();
-
-    // facets
     ctx.beginPath();
     ctx.moveTo(-r * 0.92, 0);
     ctx.lineTo(r * 0.92, 0);
@@ -807,137 +1322,176 @@
     ctx.lineTo(r * 0.4, -r * 0.56);
     ctx.lineWidth = Math.max(1.2, size * 0.045);
     ctx.stroke();
-
     ctx.restore();
   }
 
-  function drawPlayer(px, py, fx, fy, name, isMe, scale) {
+  function drawPlayer(px, py, p, isMe, scale) {
     const r = 0.34 * scale;
+    const frozen = p.frozenUntil > nowServer();
+    const correct = !!p.roundCorrect;
     ctx.save();
     ctx.translate(px, py);
 
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
-    if (isMe) {
+    if (isMe || correct) {
       ctx.fillStyle = '#0a0a0a';
       ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
     } else {
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = 3;
+    }
+    ctx.lineWidth = frozen ? 2 : 3;
+    ctx.strokeStyle = isMe || correct ? '#ffffff' : '#0a0a0a';
+    ctx.stroke();
+
+    if (frozen) {
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 4, 0, Math.PI * 2);
+      ctx.lineWidth = 2;
       ctx.strokeStyle = '#0a0a0a';
       ctx.stroke();
+      ctx.restore();
     }
 
-    // facing marker
-    const flen = Math.hypot(fx, fy) || 1;
-    const dx = (fx / flen) * r * 0.55;
-    const dy = (fy / flen) * r * 0.55;
-    ctx.beginPath();
-    ctx.arc(dx, dy, r * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = isMe ? '#ffffff' : '#0a0a0a';
-    ctx.fill();
-
-    // name label
-    if (name) {
-      ctx.font = labelFont;
-      const tw = ctx.measureText(name).width;
-      const lw = tw + 14;
-      const lh = 18;
-      const lx = -lw / 2;
-      const ly = -r - 9 - lh;
-      roundRectPath(ctx, lx, ly, lw, lh, 9);
-      ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(10,10,10,0.35)';
+    if (correct) {
+      // dau tick trang
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.42, 0.02 * r);
+      ctx.lineTo(-r * 0.12, r * 0.36);
+      ctx.lineTo(r * 0.46, -r * 0.34);
+      ctx.lineWidth = Math.max(2, r * 0.28);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#ffffff';
       ctx.stroke();
-      ctx.fillStyle = '#0a0a0a';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(name, 0, ly + lh / 2 + 0.5);
+    } else {
+      // cham huong
+      const fx = p.fx || 1;
+      const fy = p.fy || 0;
+      const flen = Math.hypot(fx, fy) || 1;
+      ctx.beginPath();
+      ctx.arc((fx / flen) * r * 0.55, (fy / flen) * r * 0.55, r * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = isMe ? '#ffffff' : '#0a0a0a';
+      ctx.fill();
     }
+
+    // nhan ten + trang thai
+    const label = p.name + (frozen ? '  ' + Math.ceil((p.frozenUntil - nowServer()) / 1000) + 's' : '');
+    ctx.font = S.labelFont;
+    const tw = ctx.measureText(label).width;
+    const lw = tw + 14;
+    const lh = 18;
+    const lx = -lw / 2;
+    const ly = -r - 8 - lh;
+    roundRectPath(ctx, lx, ly, lw, lh, 9);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = frozen ? '#0a0a0a' : 'rgba(10,10,10,0.35)';
+    ctx.stroke();
+    ctx.fillStyle = '#0a0a0a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 0, ly + lh / 2 + 0.5);
     ctx.restore();
+  }
+
+  function viewTransform() {
+    if (S.role === 'host') {
+      const wide = S.viewW >= 800;
+      const mapW = wide ? S.viewW - 270 : S.viewW;
+      const mapH = wide ? S.viewH - 110 : S.viewH - 340;
+      const scale = Math.max(3, Math.min((mapW - 24) / S.W, mapH / S.H));
+      const ox = mapW / 2 - S.W * scale / 2;
+      const oy = (wide ? 90 : 210) + Math.max(0,mapH - S.H * scale) / 2;
+      return { scale, ox, oy, fog: false };
+    }
+    const s = S.tilePx;
+    const ox = S.viewW / 2 - S.cam.x * s;
+    const oy = S.viewH / 2 - S.cam.y * s;
+    return { scale: s, ox, oy, fog: true };
   }
 
   function render(now) {
     const w = S.viewW;
     const h = S.viewH;
-    const s = S.tilePx;
-
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
     if (!S.grid) return;
 
-    const originX = w / 2 - S.cam.x * s;
-    const originY = h / 2 - S.cam.y * s;
+    const { scale: s, ox, oy, fog } = viewTransform();
+    const gx0 = Math.max(0, Math.floor(-ox / s) - 1);
+    const gy0 = Math.max(0, Math.floor(-oy / s) - 1);
+    const gx1 = Math.min(S.W - 1, Math.ceil((w - ox) / s) + 1);
+    const gy1 = Math.min(S.H - 1, Math.ceil((h - oy) / s) + 1);
 
-    const gx0 = Math.max(0, Math.floor(-originX / s) - 1);
-    const gy0 = Math.max(0, Math.floor(-originY / s) - 1);
-    const gx1 = Math.min(S.W - 1, Math.ceil((w - originX) / s) + 1);
-    const gy1 = Math.min(S.H - 1, Math.ceil((h - originY) / s) + 1);
-
-    // walls (classic black maze on white)
     ctx.fillStyle = '#0a0a0a';
     for (let gy = gy0; gy <= gy1; gy++) {
       const row = S.grid[gy];
       for (let gx = gx0; gx <= gx1; gx++) {
         if (row[gx] !== '#') continue;
-        const sx = originX + gx * s;
-        const sy = originY + gy * s;
-        ctx.fillRect(sx, sy, s + 0.5, s + 0.5);
+        ctx.fillRect(ox + gx * s, oy + gy * s, s + 0.5, s + 0.5);
       }
     }
 
-    // treasures
-    const tSize = s;
-    for (const t of S.treasures) {
-      if (S.collected.has(t.id)) continue;
-      const sx = originX + t.x * s;
-      const sy = originY + t.y * s + Math.sin(now / 420 + t.id * 1.7) * s * 0.06;
-      if (sx < -s || sy < -s || sx > w + s || sy > h + s) continue;
-      const d = Math.hypot(t.x - S.me.x, t.y - S.me.y);
-      const pulse = d < 2.2 ? (Math.sin(now / 220) + 1) / 2 : 0;
-      drawGem(sx, sy, tSize, pulse);
+    // ruong
+    if (S.treasure) {
+      const sx = ox + S.treasure.x * s;
+      const sy = oy + S.treasure.y * s + Math.sin(now / 420) * s * 0.05;
+      const d = S.role === 'host' ? 0 : Math.hypot(S.treasure.x - me.x, S.treasure.y - me.y);
+      const pulse = d < 3 ? (Math.sin(now / 220) + 1) / 2 : 0;
+      drawGem(sx, sy, s, pulse);
+      if (S.treasureFound) {
+        // song bao "da co nguoi tim thay"
+        const wave = ((now % 1400) / 1400);
+        ctx.beginPath();
+        ctx.arc(sx, sy, s * (0.6 + wave * 1.6), 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(10,10,10,' + (0.5 * (1 - wave)).toFixed(3) + ')';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
     }
 
-    // fog: fade everything far from the player to white
-    const meSX = originX + S.me.x * s;
-    const meSY = originY + S.me.y * s;
-    const rClear = 4.3 * s;
-    const rFull = 8.6 * s;
-    const rOut = Math.hypot(w, h);
-    const g = ctx.createRadialGradient(meSX, meSY, 0, meSX, meSY, rOut);
-    const oClear = Math.min(1, rClear / rOut);
-    const oFull = Math.min(1, rFull / rOut);
-    g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(oClear, 'rgba(255,255,255,0)');
-    g.addColorStop(oFull, 'rgba(255,255,255,1)');
-    g.addColorStop(1, 'rgba(255,255,255,1)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+    if (fog) {
+      const meSX = ox + me.x * s;
+      const meSY = oy + me.y * s;
+      const rClear = 4.3 * s;
+      const rFull = 8.6 * s;
+      const rOut = Math.hypot(w, h);
+      const g = ctx.createRadialGradient(meSX, meSY, 0, meSX, meSY, rOut);
+      const oClear = Math.min(1, rClear / rOut);
+      const oFull = Math.min(1, rFull / rOut);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(oClear, 'rgba(255,255,255,0)');
+      g.addColorStop(oFull, 'rgba(255,255,255,1)');
+      g.addColorStop(1, 'rgba(255,255,255,1)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
 
-    // other players (always visible above fog)
+    // cac nguoi choi
     for (const p of S.players.values()) {
-      const sx = originX + p.x * s;
-      const sy = originY + p.y * s;
+      if (p.id === S.myId || !p.spawned) continue;
+      const sx = ox + p.x * s;
+      const sy = oy + p.y * s;
       if (sx < -80 || sy < -80 || sx > w + 80 || sy > h + 80) continue;
-      drawPlayer(sx, sy, p.fx, p.fy, p.name, false, s);
+      if (fog && Math.hypot(p.x-me.x,p.y-me.y)>5) continue;
+      drawPlayer(sx, sy, p, false, s);
     }
-
-    // me
-    drawPlayer(meSX, meSY, S.me.fx, S.me.fy, S.name || 'Bạn', true, s);
+    // minh
+    const pMe = myEntry();
+    if (pMe && pMe.spawned && S.role !== 'host') {
+      pMe.fx = me.fx;
+      pMe.fy = me.fy;
+      drawPlayer(ox + me.x * s, oy + me.y * s, pMe, true, s);
+    }
   }
 
-  /* ----------------------------- minimap ---------------------------- */
-
-  let minimapTick = 0;
-
   function renderMinimap() {
-    if (!S.grid) return;
+    if (!S.grid || S.role !== 'host') return;
     const mw = minimap.width / S.dpr;
     const mh = minimap.height / S.dpr;
     const m = Math.min(mw / S.W, mh / S.H);
@@ -946,55 +1500,60 @@
 
     mctx.fillStyle = '#f4f4f4';
     mctx.fillRect(0, 0, mw, mh);
-
     for (let gy = 0; gy < S.H; gy++) {
       for (let gx = 0; gx < S.W; gx++) {
-        if (!S.explored[gy * S.W + gx]) continue;
         mctx.fillStyle = S.grid[gy][gx] === '#' ? '#0a0a0a' : '#ffffff';
         mctx.fillRect(offX + gx * m, offY + gy * m, m + 0.4, m + 0.4);
       }
     }
 
-    // collected treasure marks
-    mctx.fillStyle = '#0a0a0a';
-    for (const t of S.treasures) {
-      if (!S.collected.has(t.id)) continue;
-      mctx.fillRect(offX + t.x * m - 1.5, offY + t.y * m - 1.5, 3, 3);
-    }
-
-    // camera viewport
-    const vw = S.viewW / S.tilePx;
-    const vh = S.viewH / S.tilePx;
-    mctx.strokeStyle = 'rgba(10,10,10,0.4)';
-    mctx.lineWidth = 1;
-    mctx.strokeRect(
-      offX + (S.cam.x - vw / 2) * m,
-      offY + (S.cam.y - vh / 2) * m,
-      vw * m,
-      vh * m
-    );
-
-    // remote players
-    mctx.fillStyle = '#8a8a8a';
-    for (const p of S.players.values()) {
+    // ruong o giua
+    if (S.treasure) {
+      const tx = offX + S.treasure.x * m;
+      const ty = offY + S.treasure.y * m;
       mctx.beginPath();
-      mctx.arc(offX + p.x * m, offY + p.y * m, 2, 0, Math.PI * 2);
+      mctx.arc(tx, ty, 3.4, 0, Math.PI * 2);
+      mctx.fillStyle = '#0a0a0a';
       mctx.fill();
+      mctx.beginPath();
+      mctx.arc(tx, ty, 5.5, 0, Math.PI * 2);
+      mctx.lineWidth = 1.2;
+      mctx.strokeStyle = '#0a0a0a';
+      mctx.stroke();
     }
 
-    // me
-    mctx.beginPath();
-    mctx.arc(offX + S.me.x * m, offY + S.me.y * m, 3, 0, Math.PI * 2);
-    mctx.fillStyle = '#0a0a0a';
-    mctx.fill();
-    mctx.lineWidth = 1.5;
-    mctx.strokeStyle = '#ffffff';
-    mctx.stroke();
+    for (const p of S.players.values()) {
+      if (!p.spawned) continue;
+      const px = offX + (p.id === S.myId ? me.x : p.x) * m;
+      const py = offY + (p.id === S.myId ? me.y : p.y) * m;
+      if (p.id === S.myId) {
+        mctx.beginPath();
+        mctx.arc(px, py, 3, 0, Math.PI * 2);
+        mctx.fillStyle = '#0a0a0a';
+        mctx.fill();
+        mctx.lineWidth = 1.5;
+        mctx.strokeStyle = '#ffffff';
+        mctx.stroke();
+      } else {
+        mctx.beginPath();
+        mctx.arc(px, py, 2.4, 0, Math.PI * 2);
+        mctx.fillStyle = p.roundCorrect ? '#0a0a0a' : '#8a8a8a';
+        mctx.fill();
+        if (p.frozenUntil > nowServer()) {
+          mctx.beginPath();
+          mctx.arc(px, py, 4, 0, Math.PI * 2);
+          mctx.lineWidth = 1;
+          mctx.strokeStyle = '#0a0a0a';
+          mctx.stroke();
+        }
+      }
+    }
   }
 
   /* ------------------------------- loop ----------------------------- */
 
   let prevTs = 0;
+  let minimapTick = 0;
 
   function loop(ts) {
     requestAnimationFrame(loop);
@@ -1002,11 +1561,25 @@
     let dt = (now - prevTs) / 1000;
     prevTs = now;
     if (dt > 0.1) dt = 0.1;
-    if (!S.started || !S.grid) return;
+    if (gameEl.hidden) return;
 
     update(dt, now);
-    render(now);
-    if (++minimapTick % 5 === 0) renderMinimap();
+    if (S.grid) {
+      render(now);
+      if (++minimapTick % 5 === 0) renderMinimap();
+    }
+
+    // dong ho
+    if (S.phase === 'round' && S.endsAt) {
+      const remain = Math.max(0, S.endsAt - nowServer());
+      const total = Math.ceil(remain / 1000);
+      const mm = Math.floor(total / 60);
+      const ss = String(total % 60).padStart(2, '0');
+      hudTimer.textContent = mm + ':' + ss;
+      hudRound.textContent = 'VÒNG ' + S.round + '/10 · ' + S.correctCount + '/5 ĐÚNG';
+      hudTimer.classList.toggle('low', remain <= 10000);
+      if (S.modalOpen && !S.modalSolved) updateStatusChip();
+    }
   }
   requestAnimationFrame(loop);
 
@@ -1024,12 +1597,10 @@
     startBtn.disabled = true;
     startBtn.textContent = 'ĐANG KẾT NỐI...';
     openWS();
-    // safety: if the socket stalls without a close/error event, re-enable
     setTimeout(() => {
-      if (!S.started) {
-        startBtn.disabled = false;
-        startBtn.textContent = 'VÀO GAME';
-      }
+      if (startScreen.hidden) return;
+      startBtn.disabled = false;
+      startBtn.textContent = 'VÀO GAME';
     }, 5000);
   });
 

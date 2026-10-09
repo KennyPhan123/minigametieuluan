@@ -1,79 +1,19 @@
 'use strict';
-
-/* Maze invariants: connectivity, treasures on passages, spread. */
-
 const assert = require('assert');
-const { mulberry32, generateMaze, bfsDistances, pickTreasures } = require('../maze');
-
-const COLS = 20;
-const ROWS = 15;
-const rng = mulberry32(123456789);
-const { grid, W, H } = generateMaze(COLS, ROWS, rng);
-
-assert.strictEqual(W, COLS * 2 + 1, 'grid width');
-assert.strictEqual(H, ROWS * 2 + 1, 'grid height');
-
-// border must be all walls
-for (let x = 0; x < W; x++) {
-  assert.strictEqual(grid[0][x], 1, 'top border wall');
-  assert.strictEqual(grid[H - 1][x], 1, 'bottom border wall');
+const {generateMaze,mulberry32,edgeCells,cellCenter} = require('../maze');
+let maxDistance=0, deadEnds=0;
+for(let seed=1;seed<=200;seed++) {
+ const m=generateMaze(11,9,mulberry32(seed));
+ assert.equal(m.W,23); assert.equal(m.H,19);
+ const center=cellCenter(5,4), x=Math.floor(center.x),y=Math.floor(center.y);
+ const queue=[[x,y,0]],seen=new Set([`${x},${y}`]);
+ for(let i=0;i<queue.length;i++) {const [x,y,d]=queue[i]; for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+ const nx=x+dx,ny=y+dy,k=`${nx},${ny}`;
+ if(m.grid[ny]?.[nx]===0&&!seen.has(k)){seen.add(k);queue.push([nx,ny,d+1]);}
+ }}
+ assert.equal(seen.size,m.grid.flat().filter(v=>v===0).length);
+ assert(m.stats.deadEnds>=10); assert(m.stats.cycles>0); deadEnds+=m.stats.deadEnds;
+ for(const [c,r] of edgeCells(11,9)) {const p=cellCenter(c,r),entry=queue.find(([x,y])=>x===Math.floor(p.x)&&y===Math.floor(p.y));assert(entry);maxDistance=Math.max(maxDistance,entry[2]);}
+ for(let i=0;i<m.W;i++)assert(m.grid[0][i]&&m.grid[m.H-1][i]);
 }
-for (let y = 0; y < H; y++) {
-  assert.strictEqual(grid[y][0], 1, 'left border wall');
-  assert.strictEqual(grid[y][W - 1], 1, 'right border wall');
-}
-
-// start is open
-assert.strictEqual(grid[1][1], 0, 'start tile open');
-
-// full connectivity: BFS from start reaches every passage tile
-const dist = bfsDistances(grid, 1, 1);
-let openCount = 0;
-let reached = 0;
-for (let y = 0; y < H; y++) {
-  for (let x = 0; x < W; x++) {
-    if (grid[y][x] === 0) {
-      openCount++;
-      if (dist[y][x] >= 0) reached++;
-    }
-  }
-}
-assert.strictEqual(openCount, reached, `all passages reachable (${reached}/${openCount})`);
-assert.ok(openCount >= COLS * ROWS, 'at least one passage per cell');
-
-// every cell (odd, odd) must be a passage
-for (let r = 0; r < ROWS; r++) {
-  for (let c = 0; c < COLS; c++) {
-    assert.strictEqual(grid[r * 2 + 1][c * 2 + 1], 0, `cell ${c},${r} open`);
-  }
-}
-
-// treasures
-const treasures = pickTreasures(grid, rng, 10);
-assert.strictEqual(treasures.length, 10, '10 treasures picked');
-
-const seen = new Set();
-for (const t of treasures) {
-  const gx = Math.floor(t.x);
-  const gy = Math.floor(t.y);
-  assert.strictEqual(grid[gy][gx], 0, `treasure on passage at ${gx},${gy}`);
-  const key = gx + ',' + gy;
-  assert(!seen.has(key), 'treasure tiles unique');
-  seen.add(key);
-}
-
-// pairwise spread: no two treasures adjacent
-for (let i = 0; i < treasures.length; i++) {
-  for (let j = i + 1; j < treasures.length; j++) {
-    const d = Math.hypot(treasures[i].x - treasures[j].x, treasures[i].y - treasures[j].y);
-    assert.ok(d >= 2, `treasures ${i} and ${j} too close: ${d.toFixed(2)}`);
-  }
-}
-
-// far from start
-const minStartDist = Math.min(
-  ...treasures.map((t) => Math.hypot(t.x - 1.5, t.y - 1.5))
-);
-assert.ok(minStartDist >= 6, `treasures far from start (min=${minStartDist.toFixed(1)})`);
-
-console.log('maze test OK:', { W, H, openCount, minStartDist: minStartDist.toFixed(1) });
+console.log('maze OK: 200 seeds, max shortest route',maxDistance,'tiles =', (maxDistance/6.5).toFixed(1),'seconds moving; average dead ends',deadEnds/200);

@@ -1,7 +1,7 @@
 {
   "name": "minigametieuluan",
   "version": "1.0.0",
-  "description": "Me cung Hasaki - tro tim 10 kho bau va tra loi 10 cau hoi (web game online)",
+  "description": "Me cung Hasaki - 10 vong thi dau, chu phong quan sat, truot me cung va tra loi cau hoi",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

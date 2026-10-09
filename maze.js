@@ -1,6 +1,9 @@
 'use strict';
 
-/* Maze generation utilities shared by the server (and tests). */
+/* Maze generation: randomized Prim (branchy, lots of dead ends) plus light
+ * braiding (open a fraction of dead ends => loops, multiple routes).
+ * The result is NOT a single-winding-path maze: many branches, many cul-de-sacs.
+ */
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -13,10 +16,36 @@ function mulberry32(seed) {
   };
 }
 
+function shuffle(arr, rng) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = arr[i];
+    arr[i] = arr[j];
+    arr[j] = t;
+  }
+  return arr;
+}
+
+/** Wall tile index between two adjacent cells (cell grid coords). */
+function carveBetween(grid, ca, ra, cb, rb) {
+  if (ra === rb) {
+    grid[2 * ra + 1][Math.min(ca, cb) * 2 + 2] = 0;
+  } else {
+    grid[Math.min(ra, rb) * 2 + 2][2 * ca + 1] = 0;
+  }
+}
+
+const DIRS4 = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
+
 /**
- * Recursive-backtracker maze.
- * Returns { grid, W, H } where grid[y][x] is 1 for wall, 0 for passage.
- * Grid size is (cols*2+1) x (rows*2+1); cell (c,r) lives at grid[2r+1][2c+1].
+ * Generate a branchy maze.
+ * Returns { grid, W, H, stats: { deadEnds, braided, cycles } }.
+ * grid[y][x] = 1 wall / 0 passage. Cell (c,r) center tile = (2c+1, 2r+1).
  */
 function generateMaze(cols, rows, rng) {
   const W = cols * 2 + 1;
@@ -27,153 +56,119 @@ function generateMaze(cols, rows, rng) {
   const visited = [];
   for (let r = 0; r < rows; r++) visited.push(new Array(cols).fill(false));
 
-  visited[0][0] = true;
-  grid[1][1] = 0;
-  const stack = [[0, 0]];
-  const dirs = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
+  // --- randomized Prim: bushy tree with many short branches ---
+  const startC = Math.floor(rng() * cols);
+  const startR = Math.floor(rng() * rows);
+  visited[startR][startC] = true;
+  grid[2 * startR + 1][2 * startC + 1] = 0;
 
-  while (stack.length) {
-    const [c, r] = stack[stack.length - 1];
-    const options = [];
-    for (const [dx, dy] of dirs) {
-      const nc = c + dx;
-      const nr = r + dy;
+  const frontier = [];
+  const addEdges = (c, r) => {
+    for (const [dc, dr] of DIRS4) {
+      const nc = c + dc;
+      const nr = r + dr;
       if (nc >= 0 && nc < cols && nr >= 0 && nr < rows && !visited[nr][nc]) {
-        options.push([nc, nr, dx, dy]);
+        frontier.push([c, r, nc, nr]);
       }
     }
-    if (!options.length) {
-      stack.pop();
-      continue;
-    }
-    const [nc, nr, dx, dy] = options[Math.floor(rng() * options.length)];
-    grid[r * 2 + 1 + dy][c * 2 + 1 + dx] = 0; // knock down wall between
-    grid[nr * 2 + 1][nc * 2 + 1] = 0;
-    visited[nr][nc] = true;
-    stack.push([nc, nr]);
-  }
-  return { grid, W, H };
-}
+  };
+  addEdges(startC, startR);
 
-/** BFS distances (in tiles) over passage tiles from (sx, sy). */
-function bfsDistances(grid, sx, sy) {
-  const H = grid.length;
-  const W = grid[0].length;
-  const dist = [];
-  for (let y = 0; y < H; y++) dist.push(new Array(W).fill(-1));
-  if (grid[sy][sx] !== 0) return dist;
-  const queue = [[sx, sy]];
-  dist[sy][sx] = 0;
-  for (let i = 0; i < queue.length; i++) {
-    const [x, y] = queue[i];
-    const d = dist[y][x] + 1;
-    const neighbors = [
-      [x + 1, y],
-      [x - 1, y],
-      [x, y + 1],
-      [x, y - 1],
-    ];
-    for (const [nx, ny] of neighbors) {
-      if (nx >= 0 && nx < W && ny >= 0 && ny < H && grid[ny][nx] === 0 && dist[ny][nx] < 0) {
-        dist[ny][nx] = d;
-        queue.push([nx, ny]);
+  while (frontier.length) {
+    const i = Math.floor(rng() * frontier.length);
+    const edge = frontier[i];
+    frontier[i] = frontier[frontier.length - 1];
+    frontier.pop();
+    const [ca, ra, cb, rb] = edge;
+    if (visited[rb][cb]) continue;
+    carveBetween(grid, ca, ra, cb, rb);
+    grid[2 * rb + 1][2 * cb + 1] = 0;
+    visited[rb][cb] = true;
+    addEdges(cb, rb);
+  }
+
+  // --- braid: open one wall of a fraction of dead ends => loops ---
+  const isOpenSide = (c, r, nc, nr) => {
+    // wall tile between cell (c,r) and neighbour (nc,nr)
+    if (nr === r) return grid[2 * r + 1][Math.min(c, nc) * 2 + 2] === 0;
+    return grid[Math.min(r, nr) * 2 + 2][2 * c + 1] === 0;
+  };
+  const cellNeighbors = (c, r) => {
+    let open = 0;
+    for (const [dc, dr] of DIRS4) {
+      const nc = c + dc;
+      const nr = r + dr;
+      if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
+      if (isOpenSide(c, r, nc, nr)) open++;
+    }
+    return open;
+  };
+
+  const deadEnds = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (cellNeighbors(c, r) === 1) deadEnds.push([c, r]);
+    }
+  }
+
+  shuffle(deadEnds, rng);
+  const target = Math.max(2, Math.floor(deadEnds.length * 0.22));
+  let braided = 0;
+  for (const [c, r] of deadEnds) {
+    if (braided >= target) break;
+  const closed = [];
+      for (const [dc, dr] of DIRS4) {
+        const nc = c + dc;
+        const nr = r + dr;
+        if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
+        if (!isOpenSide(c, r, nc, nr)) closed.push([nc, nr]);
       }
+    if (!closed.length) continue;
+    const [nc, nr] = closed[Math.floor(rng() * closed.length)];
+    carveBetween(grid, c, r, nc, nr);
+    braided++;
+  }
+
+  // recount dead ends after braiding
+  let deadEndsAfter = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (cellNeighbors(c, r) === 1) deadEndsAfter++;
     }
   }
-  return dist;
+
+  // passages = cell tiles (always open) + carved wall tiles (tree edges).
+  // cycles = edges - (cells - 1); 0 for a perfect tree, >0 when braided.
+  let carvedEdges = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (grid[y][x] === 0) carvedEdges++;
+  carvedEdges -= cols * rows; // remove cell tiles
+  const cycles = carvedEdges - (cols * rows - 1);
+
+  return { grid, W, H, stats: { deadEnds: deadEndsAfter, braided, cycles } };
 }
 
-function countOpenNeighbors(grid, x, y) {
-  let n = 0;
-  const H = grid.length;
-  const W = grid[0].length;
-  const neighbors = [
-    [x + 1, y],
-    [x - 1, y],
-    [x, y + 1],
-    [x, y - 1],
-  ];
-  for (const [nx, ny] of neighbors) {
-    if (nx >= 0 && nx < W && ny >= 0 && ny < H && grid[ny][nx] === 0) n++;
+/** All cell centers on the border ring of the cell grid. */
+function edgeCells(cols, rows) {
+  const out = [];
+  for (let c = 0; c < cols; c++) {
+    out.push([c, 0]);
+    if (rows > 1) out.push([c, rows - 1]);
   }
-  return n;
+  for (let r = 1; r < rows - 1; r++) {
+    out.push([0, r]);
+    if (cols > 1) out.push([cols - 1, r]);
+  }
+  return out;
 }
 
-/**
- * Pick `count` treasure spots on passage tiles: prefer dead-ends ("corners"
- * of the maze) that are far from the start, spread apart with farthest-point
- * sampling. Returns [{ x, y, d }] with tile-center coordinates.
- */
-function pickTreasures(grid, rng, count) {
-  const H = grid.length;
-  const W = grid[0].length;
-  const dist = bfsDistances(grid, 1, 1);
-
-  const open = [];
-  let maxD = 0;
-  for (let y = 1; y < H - 1; y++) {
-    for (let x = 1; x < W - 1; x++) {
-      if (grid[y][x] === 0) {
-        const d = dist[y][x];
-        if (d > maxD) maxD = d;
-        open.push({ x, y, d });
-      }
-    }
-  }
-
-  const deadEnds = open.filter((t) => countOpenNeighbors(grid, t.x, t.y) === 1);
-  const euclidFromStart = (t) => Math.hypot(t.x - 1, t.y - 1); // start tile is (1,1)
-
-  // Progressive filters: prefer dead-ends that are far (BFS + euclidean) from start.
-  const MIN_EUCLID = 8;
-  let candidates = deadEnds.filter((t) => t.d >= maxD * 0.2 && euclidFromStart(t) >= MIN_EUCLID);
-  if (candidates.length < count) candidates = deadEnds.filter((t) => t.d >= maxD * 0.2);
-  if (candidates.length < count) candidates = open.filter((t) => t.d >= maxD * 0.2 && euclidFromStart(t) >= MIN_EUCLID);
-  if (candidates.length < count) candidates = open.filter((t) => t.d >= maxD * 0.2);
-  if (candidates.length < count) candidates = open.slice();
-
-  // First spot: farthest dead-end (or farthest open tile) from the start,
-  // preferring one that is also comfortably away in a straight line.
-  const firstPool = deadEnds.length ? deadEnds : open;
-  const firstFar = firstPool.filter((t) => euclidFromStart(t) >= MIN_EUCLID);
-  const seedPool = firstFar.length ? firstFar : firstPool;
-  let first = seedPool[0];
-  for (const t of seedPool) if (t.d > first.d) first = t;
-
-  const chosen = [first];
-  const chosenIdx = new Set();
-  const firstIdx = candidates.indexOf(first);
-  if (firstIdx >= 0) chosenIdx.add(firstIdx);
-  // minDist[i] = euclidean distance from candidates[i] to the nearest chosen spot
-  const minDist = candidates.map((t) => Math.hypot(t.x - first.x, t.y - first.y));
-
-  while (chosen.length < count) {
-    let best = -1;
-    let bestScore = -Infinity;
-    for (let i = 0; i < candidates.length; i++) {
-      if (chosenIdx.has(i)) continue;
-      // farthest-point sampling; BFS distance only breaks near-ties
-      const score = minDist[i] * 10000 + candidates[i].d;
-      if (score > bestScore) {
-        bestScore = score;
-        best = i;
-      }
-    }
-    if (best < 0) break;
-    chosenIdx.add(best);
-    chosen.push(candidates[best]);
-    for (let i = 0; i < candidates.length; i++) {
-      const d = Math.hypot(candidates[i].x - candidates[best].x, candidates[i].y - candidates[best].y);
-      if (d < minDist[i]) minDist[i] = d;
-    }
-  }
-
-  return chosen.map((t) => ({ x: t.x + 0.5, y: t.y + 0.5, d: t.d }));
+/** Tile-center coordinates of a cell. */
+function cellCenter(c, r) {
+  return { x: 2 * c + 1.5, y: 2 * r + 1.5 };
 }
 
-module.exports = { mulberry32, generateMaze, bfsDistances, pickTreasures };
+/** Convert tile-center coordinates to cell coords. */
+function tileToCell(x, y) {
+  return [Math.floor((x - 1.5) / 2 + 0.5), Math.floor((y - 1.5) / 2 + 0.5)];
+}
+
+module.exports = { mulberry32, shuffle, generateMaze, edgeCells, cellCenter, tileToCell };

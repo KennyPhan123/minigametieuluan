@@ -99,6 +99,7 @@ function makeCtx() {
     textAlign: 'start',
     textBaseline: 'alphabetic',
     setTransform: noop,
+    setLineDash: noop,
     fillRect: noop,
     strokeRect: noop,
     clearRect: noop,
@@ -123,28 +124,23 @@ function makeCtx() {
 async function main() {
   /* ---------------------------- mock DOM ---------------------------- */
 
-  const ids = [
-    'startScreen', 'startForm', 'startBtn', 'nameInput', 'startError', 'game',
-    'gameCanvas', 'touchLayer', 'pips', 'progressText', 'onlineChip', 'leaderboard',
-    'restartBtn', 'minimap', 'joyBase', 'joyKnob', 'toast', 'netBanner',
-    'questionOverlay', 'questionTag', 'questionText', 'questionOptions',
-    'questionFeedback', 'questionLater', 'winOverlay', 'winKicker', 'winTitle',
-    'winSub', 'btnContinue', 'btnPlayAgain',
-  ];
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public/index.html'),'utf8');
+  const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m=>m[1]);
   const els = {};
   for (const id of ids) els[id] = makeElement('div');
   els.startForm.tagName = 'form';
   els.startBtn.tagName = 'button';
-  els.questionLater.tagName = 'button';
-  els.btnContinue.tagName = 'button';
-  els.btnPlayAgain.tagName = 'button';
-  els.restartBtn.tagName = 'button';
+
+
+
+
   els.gameCanvas.getContext = () => makeCtx();
   els.minimap.getContext = () => makeCtx();
 
   const created = [];
   const document = {
     body: makeElement('body'),
+    querySelector: () => makeElement('div'),
     getElementById: (id) => els[id] || null,
     createElement: (tag) => {
       const el = makeElement(tag);
@@ -196,7 +192,7 @@ async function main() {
     }
     last(type) {
       for (let i = this.sent.length - 1; i >= 0; i--) {
-        if (this.sent[i].type === type) return this.sent[i];
+        if (this.sent[i].t === type) return this.sent[i];
       }
       return null;
     }
@@ -238,6 +234,7 @@ async function main() {
   vm.runInContext(questionsCode, ctx, { filename: 'questions.js' });
   const QUESTIONS = vm.runInContext('QUESTIONS', ctx);
   assert.strictEqual(QUESTIONS.length, 10, '10 questions loaded');
+  vm.runInContext('QUESTIONS.forEach(q => { delete q.answer; delete q.note; });', ctx);
   vm.runInContext(gameCode, ctx, { filename: 'game.js' });
 
   function pump(frames, stepMs) {
@@ -259,134 +256,55 @@ async function main() {
   const press = (key) => windowListeners.keydown.forEach((fn) => fn({ key, preventDefault() {} }));
   const release = (key) => windowListeners.keyup.forEach((fn) => fn({ key }));
 
-  /* ------------------------- build real maze ------------------------ */
-
-  const rng = mulberry32(42);
-  const { grid, W, H } = generateMaze(20, 15, rng);
-  const gridRows = grid.map((row) => row.map((v) => (v === 1 ? '#' : '.')).join(''));
-  const farTreasures = pickTreasures(grid, rng, 10).map((t, i) => ({ id: i, x: t.x, y: t.y, q: i }));
-
-  function makeInit(gameId, treasures, start) {
-    return {
-      type: 'init',
-      id: 'me',
-      gameId,
-      grid: gridRows,
-      w: W,
-      h: H,
-      start: start || { x: 1.5, y: 1.5 },
-      treasures,
-      players: [{ id: 'me', name: 'Tester', x: start ? start.x : 1.5, y: start ? start.y : 1.5, fx: 1, fy: 0, progress: 0 }],
-      winner: null,
-    };
-  }
-
-  /* ----------------------------- 1. join ---------------------------- */
 
   els.nameInput.value = 'Tester';
   els.startForm.fire('submit');
-  await waitFor(() => sockets.length === 1, 'socket opened');
+  await waitFor(() => sockets[0]?.last('join'), 'join');
   const ws = sockets[0];
-  await waitFor(() => ws.last('join'), 'join sent');
-  assert.strictEqual(ws.last('join').name, 'Tester', 'join name');
-
-  // one treasure right at spawn, the other nine far away
-  const near = [{ id: 0, x: 1.5, y: 1.5, q: 0 }].concat(farTreasures.slice(1));
-  ws.feed(makeInit('g1', near));
-  assert.strictEqual(els.startScreen.hidden, true, 'start screen hidden');
-  assert.strictEqual(els.game.hidden, false, 'game visible');
-  assert.strictEqual(els.onlineChip.textContent, '1 NGƯỜI CHƠI', 'online chip');
-  pump(3);
-
-  /* --------------------- 2. treasure opens modal -------------------- */
-
-  assert.strictEqual(els.questionOverlay.hidden, false, 'question modal opened at spawn');
-  assert.strictEqual(els.questionTag.textContent, 'CÂU 1 / 10', 'question tag');
-  assert.strictEqual(els.questionOptions.children.length, 4, 'four options');
-  assert.strictEqual(els.questionText.textContent, QUESTIONS[0].text, 'question text matches');
-
-  // wrong answer: option disabled, feedback shown, modal still open
-  const wrongIdx = (QUESTIONS[0].answer + 1) % 4;
-  els.questionOptions.children[wrongIdx].fire('click');
-  assert.strictEqual(els.questionOptions.children[wrongIdx].disabled, true, 'wrong option disabled');
-  assert.strictEqual(els.questionOverlay.hidden, false, 'modal stays open after wrong');
-  assert.ok(els.questionFeedback.textContent.includes('SAI'), 'wrong feedback shown');
-
-  /* ------------------------ 3. "ĐỂ SAU" flow ------------------------ */
-
-  els.questionLater.fire('click');
-  assert.strictEqual(els.questionOverlay.hidden, true, 'modal closed by ĐỂ SAU');
-  pump(10);
-  assert.strictEqual(els.questionOverlay.hidden, true, 'dismissed treasure stays closed nearby');
-
-  /* ------------------------- 4. walk away --------------------------- */
-
-  const base = ws.last('state') || { x: 1.5, y: 1.5 };
-  const dirs = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'];
-  let moved = false;
-  for (let round = 0; round < 8 && !moved; round++) {
-    for (const d of dirs) {
-      press(d);
-      pump(40);
-      release(d);
-      const s = ws.last('state');
-      if (s && Math.hypot(s.x - base.x, s.y - base.y) > 1.7) {
-        moved = true;
-        break;
-      }
-    }
-  }
-  assert.ok(moved, 'player moved away from spawn');
-  const pos = ws.last('state');
-
-  /* ----------------- 5. reload view: 10 treasures on me -------------- */
-
-  const allNear = Array.from({ length: 10 }, (_, i) => ({ id: i, x: pos.x, y: pos.y, q: i }));
-  ws.feed(makeInit('g1', allNear, { x: pos.x, y: pos.y }));
-  // keep the position the client already had (same gameId => sameGame keeps pos)
-  pump(2);
-  assert.strictEqual(els.questionOverlay.hidden, false, 'question reopened at new spot');
-  assert.strictEqual(els.questionTag.textContent, 'CÂU 1 / 10', 'dismissal cleared after walking away');
-
-  /* ------------------------ 6. answer all 10 ------------------------ */
-
-  for (let i = 0; i < 10; i++) {
-    await waitFor(
-      () => !els.questionOverlay.hidden && els.questionOptions.children.length === 4,
-      'modal open for treasure ' + (i + 1)
-    );
-    const n = parseInt(els.questionTag.textContent.match(/CÂU (\d+)/)[1], 10);
-    assert.strictEqual(n, i + 1, 'question order ' + (i + 1));
-    const answer = QUESTIONS[n - 1].answer;
-    els.questionOptions.children[answer].fire('click');
-    await waitFor(() => els.questionOverlay.hidden, 'modal closed after correct');
-    assert.strictEqual(els.progressText.textContent, (i + 1) + '/10', 'progress ' + (i + 1));
-    pump(2);
-  }
-
-  const prog = ws.last('progress');
-  assert.strictEqual(prog.collected.length, 10, 'progress sent with 10 treasures');
-  assert.strictEqual(els.winOverlay.hidden, false, 'win overlay shown');
-  assert.strictEqual(els.winTitle.textContent, 'CHIẾN THẮNG', 'win title');
-
-  /* --------------------------- 7. restart --------------------------- */
-
-  els.btnPlayAgain.fire('click');
-  const rs = ws.last('restart');
-  assert.ok(rs, 'restart message sent');
-  ws.feed({ type: 'restart', gameId: 'g2', players: [{ id: 'me', name: 'Tester', x: pos.x, y: pos.y, fx: 1, fy: 0, progress: 0 }] });
-  assert.strictEqual(els.progressText.textContent, '0/10', 'progress reset');
-  assert.strictEqual(els.winOverlay.hidden, true, 'win overlay hidden after restart');
-  assert.strictEqual(els.pips.children.length, 10, 'ten pips');
-  pump(2);
-
-  console.log('client test OK');
+  const roster = [
+    {id:'host', name:'Teacher',score:0,spawned:false,totalCorrect:0},
+    {id:'me',name:'Tester',score:0,spawned:true,roundCorrect:false,totalCorrect:0,x:1.5,y:1.5}
+  ];
+  ws.feed({t:'init',id:'me',role:'player',hostId:'host',minPlayers:1,phase:'lobby',round:0,players:roster,serverNow:Date.now()});
+  assert(els.startScreen.hidden);
+  assert(!els.lobbyScreen.hidden);
+  assert(els.startBtnLobby.hidden, 'player cannot start');
+  const round = {t:'round', round:1,questionIdx:0,maze:['#######','#.....#','#.#.#.#','#.....#','#######'],treasure:{x:5.5,y:1.5},spawn:{x:1.5,y:1.5},endsAt:Date.now()+60000,serverNow:Date.now(),players:roster};
+  ws.feed(round);
+  press('ArrowRight'); release('ArrowRight'); pump(45);
+  assert(ws.last('touch'), 'one keypress slides to chest');
+  ws.feed({t:'touchAck',ok:true,first:true,eliminations:[0,2],score:150});
+  assert(!els.questionOverlay.hidden);
+  assert.equal(els.questionOptions.children.length,4);
+  assert(els.questionOptions.children[0].disabled);
+  els.questionOptions.children[3].fire('click');
+  assert.equal(ws.last('answer').idx,3);
+  ws.feed({t:'wrong',id:'me',score:120,until:Date.now()+30,eliminations:[0,2,3],roundWrong:1,penalty:30});
+  assert(!els.freezeBox.hidden);
+  assert(els.questionCard.classList.contains('shake'));
+  await sleep(170);
+  assert(els.freezeBox.hidden);
+  assert(!els.questionOptions.children[1].disabled);
+  ws.feed({t:'correct',id:'me',score:260,points:140,correctCount:1});
+  assert(els.questionCard.classList.contains('solved'));
+  ws.feed({t:'roundEnd',phase:'review',round:1,questionIdx:0,correctIdx:1,correctCount:1,leaderboard:roster.slice(1),winners:[{id:'me',name:'Tester',delta:260}]});
+  assert(!els.reviewOverlay.hidden);
+  assert(els.reviewQuestion.children[1].children[1].classList.contains('is-answer'), 'server reveals the correct answer only at review');
+  assert(els.btnNextReview.hidden);
+  // Host promotion during review must reveal controls.
+  ws.feed({t:'room',phase:'review',hostId:'me',minPlayers:1,round:1,correctCount:1,players:roster.slice(1)});
+  assert(!els.btnNextReview.hidden);
+  ws.feed({...round, round:2, questionIdx:1}); pump(3);
+  ws.feed({t:'roundEnd',phase:'classroom',round:2,questionIdx:1,correctCount:0,leaderboard:[]});
+  assert(!els.classroomOverlay.hidden);
+  assert(els.btnNextClass.hidden);
+  els.classroomOptions.children[0].fire('click');
+  assert.equal(ws.last('host').action,'reveal');
+  ws.feed({t:'reveal',picked:0,correctIdx:1});
+  assert(!els.btnNextClass.hidden);
+  ws.feed({t:'gameover',leaderboard:[{id:'p',name:'Player',score:100,totalCorrect:1}]});
+  assert(!els.gameoverOverlay.hidden);
+  assert(!els.btnAgain.hidden);
+  console.log('client OK: lobby, swipe, personal hints, freeze, solved, review, promotion, classroom, final');
 }
-
-main().then(
-  () => process.exit(0),
-  (err) => {
-    console.error('CLIENT TEST FAILED:', err && err.stack || err);
-    process.exit(1);
-  }
-);
+main().then(()=>process.exit(0),err=>{console.error(err);process.exit(1)});

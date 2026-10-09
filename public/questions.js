@@ -89,3 +89,8 @@ const QUESTIONS = [
     answer: 1,
   },
 ];
+
+/* export cho Node server (browser khong can) */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = QUESTIONS;
+}

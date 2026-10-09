@@ -4,98 +4,179 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
-    <meta name="description" content="Me cung Hasaki - tim 10 kho bau va tra loi 10 cau hoi" />
+    <meta name="description" content="Me cung Hasaki - 10 vong, moi vong 60 giay, tim ruong va tra loi cau hoi" />
     <link rel="icon" href="data:," />
     <title>Me cung Hasaki</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- Man hinh bat dau -->
+    <!-- ===================== MAN HINH BAT DAU ===================== -->
     <div id="startScreen" class="start-screen">
       <div class="start-card">
         <div class="start-kicker">MINI GAME</div>
         <h1 class="start-title">MÊ CUNG<br />HASAKI</h1>
         <div class="start-rule"></div>
         <p class="start-desc">
-          10 kho báu giấu trong mê cung cửa hàng. Tìm và trả lời đúng 10 câu hỏi để trở thành người thắng.
+          10 vòng chơi, mỗi vòng 60 giây. Rương và câu hỏi nằm ở giữa mê cung — ai tới trước, ai trả lời đúng nhanh hơn, người đó nhiều điểm hơn.
         </p>
         <ol class="start-how">
-          <li><span class="num">01</span> Di chuyển tìm kho báu trong mê cung</li>
-          <li><span class="num">02</span> Chạm kho báu và trả lời câu hỏi</li>
-          <li><span class="num">03</span> Tìm đủ 10 kho báu trước các người chơi khác</li>
+          <li><span class="num">01</span> Người vào đầu tiên là chủ phòng (xem map, điều khiển vòng chơi)</li>
+          <li><span class="num">02</span> Người chơi khác vào phòng chờ, chủ phòng bấm bắt đầu khi đủ người</li>
+          <li><span class="num">03</span> Vuốt để di chuyển — đi tới tường thì dừng, vuốt hướng khác để rẽ</li>
         </ol>
         <form id="startForm" autocomplete="off">
           <input id="nameInput" type="text" maxlength="16" placeholder="Nhập tên của bạn" autocomplete="off" spellcheck="false" />
           <button id="startBtn" type="submit">VÀO GAME</button>
         </form>
         <div id="startError" class="start-error" hidden></div>
-        <div class="start-hint">
-          Điện thoại: joystick ảo &nbsp;·&nbsp; Máy tính: WASD / phím mũi tên
-        </div>
+        <div class="start-hint">Điện thoại: vuốt màn hình &nbsp;·&nbsp; Máy tính: phím WASD / mũi tên</div>
       </div>
     </div>
 
-    <!-- Game -->
+    <!-- ========================= PHONG CHO ========================= -->
+    <div id="lobbyScreen" class="lobby-screen" hidden>
+      <div class="lobby-card">
+        <div class="lobby-top">
+          <div>
+            <div class="start-kicker">PHÒNG CHỜ</div>
+            <h2 class="lobby-title" id="lobbyTitle">CHỜ BẮT ĐẦU</h2>
+          </div>
+          <div id="roleBadge" class="role-badge">NGƯỜI CHƠI</div>
+        </div>
+
+        <div class="lobby-count">
+          <span class="lobby-count-label">ĐÃ CÓ</span>
+          <span class="lobby-count-num" id="lobbyCount">1</span>
+          <span class="lobby-count-label" id="lobbyMinLabel">/ 2 NGƯỜI</span>
+          <div id="minControls" class="min-controls" hidden>
+            <button id="minDown" class="min-btn" type="button">−</button>
+            <span class="min-value" id="minValue">2</span>
+            <button id="minUp" class="min-btn" type="button">+</button>
+          </div>
+        </div>
+
+        <ul id="lobbyPlayers" class="lobby-players"></ul>
+
+        <div class="score-card">
+          <div class="score-card-title">CÁCH TÍNH ĐIỂM</div>
+          <ul class="score-rules">
+            <li><b>+100 → +160</b> người đầu tiên đụng rương (càng sớm càng nhiều)</li>
+            <li><b>+100 → +150</b> trả lời đúng (trả lời nhanh được thưởng thêm)</li>
+            <li><b>−30</b> mỗi đáp án sai (và bị đóng băng 7 giây)</li>
+            <li><b>+200</b> trả lời đúng cả 10 vòng</li>
+          </ul>
+        </div>
+
+        <button id="startBtnLobby" class="big-btn" type="button" hidden>BẮT ĐẦU</button>
+        <div id="lobbyHint" class="lobby-hint">Chờ chủ phòng bắt đầu…</div>
+      </div>
+    </div>
+
+    <!-- ============================ GAME =========================== -->
     <div id="game" class="game" hidden>
       <canvas id="gameCanvas"></canvas>
       <div id="touchLayer" class="touch-layer"></div>
 
+      <!-- HUD chung -->
       <div id="hud" class="hud">
-        <!-- Tien do -->
         <div class="hud-top-left">
-          <div class="hud-label">KHO BÁU</div>
-          <div class="progress-row">
-            <div id="pips" class="pips"></div>
-            <div id="progressText" class="progress-text">0/10</div>
-          </div>
+          <div class="hud-round" id="hudRound">VÒNG 1 / 10</div>
+          <div class="hud-timer" id="hudTimer">1:00</div>
         </div>
 
-        <!-- Bang xep hang -->
+        <!-- bang xep hang (ca host va player deu thay) -->
         <div class="hud-top-right">
-          <div id="onlineChip" class="online-chip">1 NGƯỜI CHƠI</div>
+          <div class="leader-title" id="leaderTitle">AI DẪN ĐẦU</div>
           <ol id="leaderboard" class="leaderboard"></ol>
-          <button id="restartBtn" class="restart-btn" type="button">VÁN MỚI</button>
         </div>
 
-        <!-- Ban do nho -->
+        <!-- host: su kien moi nhat -->
+        <div id="hostFeed" class="host-feed" hidden>
+          <div class="leader-title">DIỄN BIẾN</div>
+          <ul id="feedList" class="feed-list"></ul>
+        </div>
+
+        <!-- player: thanh trang thai duoi cung -->
+        <div id="playerStatus" class="player-status" hidden>
+          <div class="ps-score">ĐIỂM <b id="myScore">0</b></div>
+          <div class="ps-state" id="myState">ĐANG TÌM RƯƠNG</div>
+        </div>
+
+        <!-- ban do nho: toan bo me cung -->
         <div class="minimap-wrap">
           <div class="minimap-label">BẢN ĐỒ</div>
           <canvas id="minimap"></canvas>
         </div>
       </div>
 
-      <!-- Joystick -->
-      <div id="joyBase" class="joy-base" hidden><div id="joyKnob" class="joy-knob"></div></div>
-
       <!-- Thong bao -->
       <div id="toast" class="toast" hidden></div>
       <div id="netBanner" class="net-banner" hidden>MẤT KẾT NỐI — ĐANG KẾT NỐI LẠI</div>
 
-      <!-- Cau hoi -->
+      <!-- Cau hoi (nguoi choi) -->
       <div id="questionOverlay" class="overlay" hidden>
-        <div class="question-card">
+        <div id="questionCard" class="question-card">
           <div class="question-head">
             <span id="questionTag" class="question-tag">CÂU 1 / 10</span>
-            <span class="question-hint">CHỌN 1 ĐÁP ÁN</span>
+            <span id="questionSub" class="question-hint">CHỌN 1 ĐÁP ÁN</span>
           </div>
           <div id="questionText" class="question-text"></div>
           <div id="questionOptions" class="question-options"></div>
           <div id="questionFeedback" class="question-feedback" hidden></div>
-          <div class="question-actions">
-            <button id="questionLater" class="btn btn-ghost" type="button">ĐỂ SAU</button>
+          <div id="freezeBox" class="freeze-box" hidden>
+            <div class="freeze-num" id="freezeNum">7</div>
+            <div class="freeze-text">ĐÓNG BĂNG — CHỜ HẾT GIÂY<br />CÁC ĐÁP ÁN ĐÃ SAI BỊ GẠCH</div>
           </div>
         </div>
       </div>
 
-      <!-- Chien thang / ket qua -->
-      <div id="winOverlay" class="overlay" hidden>
-        <div class="win-card">
-          <div class="win-kicker" id="winKicker">KẾT QUẢ</div>
-          <h2 class="win-title" id="winTitle">CHIẾN THẮNG</h2>
-          <p class="win-sub" id="winSub"></p>
-          <div class="win-actions">
-            <button id="btnContinue" class="btn btn-ghost" type="button">TIẾP TỤC CHƠI</button>
-            <button id="btnPlayAgain" class="btn btn-solid" type="button">CHƠI LẠI</button>
+      <!-- Review cuoi vong (1-5 nguoi dung) -->
+      <div id="reviewOverlay" class="overlay" hidden>
+        <div class="review-card">
+          <div class="start-kicker" id="reviewKicker">KẾT QUẢ VÒNG 1</div>
+          <h2 class="review-title" id="reviewTitle">ĐÁP ÁN ĐÚNG</h2>
+          <div id="reviewWinners" class="review-winners"></div>
+          <div id="reviewQuestion" class="review-question"></div>
+          <div class="review-sub">BẢNG XẾP HẠNG TẠI THỜI ĐIỂM KẾT THÚC</div>
+          <ol id="reviewBoard" class="leaderboard leaderboard-wide"></ol>
+          <div class="review-actions">
+            <button id="btnNextReview" class="big-btn" type="button" hidden>VÒNG TIẾP THEO</button>
+            <div id="waitNextReview" class="lobby-hint" hidden>Chờ chủ phòng qua màn…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chu phong trinh bai cau hoi (khong ai tra loi dung) -->
+      <div id="classroomOverlay" class="overlay overlay-strong" hidden>
+        <div class="classroom-card" id="classroomCard">
+          <div class="start-kicker" id="classroomKicker">HẾT GIỜ — CHƯA AI TRẢ LỜI ĐÚNG</div>
+          <div class="classroom-q" id="classroomQ"></div>
+          <div id="classroomOptions" class="classroom-options"></div>
+          <div id="classroomResult" class="classroom-result" hidden></div>
+          <div class="review-actions">
+            <button id="btnNextClass" class="big-btn" type="button" hidden>VÒNG TIẾP THEO</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- nguoi choi doi chu phong trinh bai -->
+      <div id="waitOverlay" class="overlay" hidden>
+        <div class="wait-card">
+          <div class="start-kicker">VÒNG KẾT THÚC</div>
+          <h2 class="wait-title" id="waitTitle">CHỜ CHỦ PHÒNG</h2>
+          <p class="wait-sub" id="waitSub">Chủ phòng đang trình bày câu hỏi cho cả lớp…</p>
+        </div>
+      </div>
+
+      <!-- Ket qua chung (het 10 vong) -->
+      <div id="gameoverOverlay" class="overlay overlay-strong" hidden>
+        <div class="review-card">
+          <div class="start-kicker">HẾT 10 VÒNG</div>
+          <h2 class="review-title">BẢNG XẾP HẠNG CHUNG</h2>
+          <ol id="finalBoard" class="leaderboard leaderboard-wide"></ol>
+          <div class="review-actions">
+            <button id="btnAgain" class="big-btn" type="button" hidden>CHƠI VÁN MỚI</button>
+            <div id="waitAgain" class="lobby-hint" hidden>Chờ chủ phòng chơi ván mới…</div>
           </div>
         </div>
       </div>

@@ -15,6 +15,8 @@
   const PLAYER_R = 0.28;
   const JOY_RADIUS = 52;
   const VIEW_RADIUS = 4.5;
+  const COMPASS_GAP = 40; // px them ngoai than nhan vat de mui ten khong de len nhan ten
+  const COMPASS_HIDE_DIST = 0.6; // o: sat ruong thi an mui ten
 
   /* ------------------------------ DOM ------------------------------ */
 
@@ -27,11 +29,6 @@
   const lobbyTitle = $('lobbyTitle');
   const roleBadge = $('roleBadge');
   const lobbyCount = $('lobbyCount');
-  const lobbyMinLabel = $('lobbyMinLabel');
-  const minControls = $('minControls');
-  const minDown = $('minDown');
-  const minUp = $('minUp');
-  const minValue = $('minValue');
   const lobbyPlayers = $('lobbyPlayers');
   const startBtnLobby = $('startBtnLobby');
   const lobbyHint = $('lobbyHint');
@@ -633,11 +630,8 @@
     roleBadge.textContent = isHost ? 'BẠN LÀ CHỦ PHÒNG' : 'NGƯỜI CHƠI';
     roleBadge.classList.toggle('plain', !isHost);
     lobbyTitle.textContent = isHost ? 'PHÒNG CHỜ' : 'CHỜ BẮT ĐẦU';
-    minControls.hidden = !isHost;
     startBtnLobby.hidden = !isHost;
     lobbyHint.hidden = isHost;
-    lobbyMinLabel.textContent = '/ ' + S.minPlayers + ' NGƯỜI';
-    minValue.textContent = String(S.minPlayers);
     lobbyCount.textContent = String(playerCountView());
     const ready = playerCountView() >= S.minPlayers;
     startBtnLobby.disabled = !ready;
@@ -681,16 +675,6 @@
   }
 
   startBtnLobby.addEventListener('click', () => send({ t: 'host', action: 'start' }));
-  minUp.addEventListener('click', () => {
-    S.minPlayers = Math.min(100, S.minPlayers + 1);
-    send({ t: 'host', action: 'min', value: S.minPlayers });
-    updateRoleUI();
-  });
-  minDown.addEventListener('click', () => {
-    S.minPlayers = Math.max(1, S.minPlayers - 1);
-    send({ t: 'host', action: 'min', value: S.minPlayers });
-    updateRoleUI();
-  });
 
   /* -------------------------- round HUD / UI ------------------------ */
 
@@ -1363,24 +1347,28 @@
     return { scale: s, ox, oy, fog: true };
   }
 
+  // ruong hien khi nam trong tam nhin, ke ca sau tuong; phan xa van bi suong che
   function visibleFromMe(x, y) {
-    const distance = Math.hypot(x - me.x, y - me.y);
-    if (distance >= VIEW_RADIUS) return false;
-    const steps = Math.max(1, Math.ceil(distance * 12));
-    for (let i = 1; i <= steps; i++) {
-      if (!tileOpen(Math.floor(me.x + (x-me.x)*i/steps), Math.floor(me.y + (y-me.y)*i/steps))) return false;
-    }
-    return true;
+    return Math.hypot(x - me.x, y - me.y) < VIEW_RADIUS;
   }
 
+  // mui ten quay quanh nhan vat, luon chi ve phia ruong (khong phai duong di)
   function updateCompass() {
     const p = myEntry();
-    treasureCompass.hidden = S.role === 'host' || S.phase !== 'round' || !p?.spawned || !S.treasure;
+    const dx = S.treasure ? S.treasure.x - me.x : 0;
+    const dy = S.treasure ? S.treasure.y - me.y : 0;
+    const atChest = Math.hypot(dx, dy) < COMPASS_HIDE_DIST;
+    treasureCompass.hidden = S.role === 'host' || S.phase !== 'round' || !p?.spawned || !S.treasure || atChest;
     if (treasureCompass.hidden) return;
-    const dx = S.treasure.x - me.x, dy = S.treasure.y - me.y;
-    // CSS arrow points up; canvas/world y grows downward.
-    const degrees = Math.atan2(dy, dx) * 180 / Math.PI + 90;
-    compassArrow.style.transform = `rotate(${degrees}deg)`;
+    const v = viewTransform();
+    const angle = Math.atan2(dy, dx);
+    const orbit = 0.34 * v.scale + COMPASS_GAP; // 0.34 = ban kinh than nhan vat, xem drawPlayer
+    treasureCompass.style.left = v.ox + me.x * v.scale + 'px';
+    treasureCompass.style.top = v.oy + me.y * v.scale + 'px';
+    compassArrow.style.left = Math.cos(angle) * orbit + 'px';
+    compassArrow.style.top = Math.sin(angle) * orbit + 'px';
+    // CSS arrow points up; canvas y grows downward, so +90 maps 'right' to 90deg
+    compassArrow.style.transform = `translate(-50%, -50%) rotate(${angle * 180 / Math.PI + 90}deg)`;
   }
 
   function render(now) {

@@ -38,7 +38,6 @@
       <div class="lobby-card">
         <div class="lobby-top">
           <div>
-            <div class="start-kicker">PHÒNG CHỜ</div>
             <h2 class="lobby-title" id="lobbyTitle">CHỜ BẮT ĐẦU</h2>
           </div>
           <div id="roleBadge" class="role-badge">NGƯỜI CHƠI</div>
@@ -47,25 +46,10 @@
         <div class="lobby-count">
           <span class="lobby-count-label">ĐÃ CÓ</span>
           <span class="lobby-count-num" id="lobbyCount">1</span>
-          <span class="lobby-count-label" id="lobbyMinLabel">/ 2 NGƯỜI</span>
-          <div id="minControls" class="min-controls" hidden>
-            <button id="minDown" class="min-btn" type="button">−</button>
-            <span class="min-value" id="minValue">2</span>
-            <button id="minUp" class="min-btn" type="button">+</button>
-          </div>
+          <span class="lobby-count-label">NGƯỜI</span>
         </div>
 
         <ul id="lobbyPlayers" class="lobby-players"></ul>
-
-        <div class="score-card">
-          <div class="score-card-title">CÁCH TÍNH ĐIỂM</div>
-          <ul class="score-rules">
-            <li><b>+100 → +160</b> người đầu tiên đụng rương (càng sớm càng nhiều)</li>
-            <li><b>+100 → +150</b> trả lời đúng (trả lời nhanh được thưởng thêm)</li>
-            <li><b>−30</b> mỗi đáp án sai (và bị đóng băng 7 giây)</li>
-            <li><b>+200</b> trả lời đúng cả 10 vòng</li>
-          </ul>
-        </div>
 
         <button id="startBtnLobby" class="big-btn" type="button" hidden>BẮT ĐẦU</button>
         <div id="lobbyHint" class="lobby-hint">Chờ chủ phòng bắt đầu…</div>
@@ -87,7 +71,6 @@
 
         <div id="treasureCompass" class="treasure-compass" hidden aria-label="Hướng rương">
           <span id="compassArrow" class="compass-arrow" aria-hidden="true"></span>
-          <span>HƯỚNG RƯƠNG</span>
         </div>
 
         <!-- bang xep hang (ca host va player deu thay) -->

@@ -14,10 +14,10 @@ Server lắng nghe `0.0.0.0`, cổng mặc định 3000 (đổi bằng `PORT`). 
 ## Cách tổ chức
 
 1. Người vào đầu tiên là chủ phòng, không tham gia thi đấu. Những người sau nhập tên và vào phòng chờ.
-2. Chủ phòng chọn số lượng tối thiểu (không tính chủ phòng), rồi bấm bắt đầu.
+2. Khi có ít nhất 2 người chơi (không tính chủ phòng), chủ phòng bấm bắt đầu.
 3. Mỗi vòng 60 giây, mê cung mới 31 × 23 ô, rương và một điểm xuất phát chung được chọn ngẫu nhiên lại mỗi vòng. Tất cả người chơi có cùng vị trí xuất phát. Hai vị trí cách nhau ít nhất 12 ô theo đường thẳng, và 30–70 ô theo đường đi ngắn nhất.
-4. Di chuyển tự do: chạm và kéo joystick trên điện thoại, hoặc giữ WASD/phím mũi tên trên máy tính; thả tay/phím là dừng ngay. Có thể đổi hướng và đi chéo, có va chạm trượt dọc tường. Camera người chơi zoom gần, chỉ thấy rõ trong bán kính 2,5 ô và bị che hoàn toàn từ 4,5 ô; rương không hiện xuyên tường. Mỗi người chỉ thấy nhân vật của mình, không thấy nhân vật người khác dù đứng cùng chỗ; chủ phòng thấy toàn bộ bản đồ, trạng thái đúng/sai/đóng băng và bảng dẫn đầu.
-Mỗi người có mũi tên hướng rương, xoay theo vị trí hiện tại. Đây là hướng thẳng tới rương, không phải chỉ dẫn đường đi hoặc hướng rẽ; chủ phòng vẫn xem toàn bộ bản đồ.
+4. Di chuyển tự do: chạm và kéo joystick trên điện thoại, hoặc giữ WASD/phím mũi tên trên máy tính; thả tay/phím là dừng ngay. Có thể đổi hướng và đi chéo, có va chạm trượt dọc tường. Camera người chơi zoom gần, chỉ thấy rõ trong bán kính 2,5 ô và bị che hoàn toàn từ 4,5 ô; rương hiện khi nằm trong bán kính 4,5 ô, kể cả khi có tường chắn. Mỗi người chỉ thấy nhân vật của mình, không thấy nhân vật người khác dù đứng cùng chỗ; chủ phòng thấy toàn bộ bản đồ, trạng thái đúng/sai/đóng băng và bảng dẫn đầu.
+Mỗi người có mũi tên hướng rương quay quanh nhân vật, luôn chỉ về phía rương. Đây là hướng thẳng tới rương, không phải chỉ dẫn đường đi hoặc hướng rẽ; chủ phòng vẫn xem toàn bộ bản đồ.
 
 5. Chạm rương để trả lời. Người tới đầu tiên được điểm tìm rương và loại riêng hai trong ba đáp án sai (còn hai lựa chọn). Các người khác vẫn có đủ bốn lựa chọn.
 6. Trả lời sai: hiệu ứng rung, trừ điểm, khóa di chuyển/chọn đáp án trong 7 giây. Lựa chọn sai bị gạch riêng cho người đó. Trả lời đúng: thông báo và đứng chờ.
@@ -47,6 +47,7 @@ Joystick, tốc độ, kích thước map, camera, điểm số và mũi tên h�
 - `test/maze.js`: 200 seed, liên thông, viền kín, ngõ cụt, đồ thị không có chu trình, các nhánh sai đủ sâu và vị trí spawn/rương ngẫu nhiên có khoảng cách phù hợp.
 - `test/client.js`: DOM/Canvas mô phỏng, phòng chờ, di chuyển tự do, dừng khi thả phím/tay, va chạm tường, joystick, ẩn đối thủ với người chơi nhưng hiện với chủ phòng, mũi tên đúng bốn hướng, gợi ý cá nhân, đóng băng, review, chuyển chủ phòng, câu hỏi lớp và bảng cuối.
 - `test/smoke.js`: server thật với nhiều WebSocket; quyền chủ phòng, chặn nhảy thẳng tới rương, người tới đầu, freeze, đúng 5 người kết thúc sớm, thay mê cung, 10 vòng hết giờ, bắt buộc chọn câu hỏi lớp rồi mới qua màn.
+- `test/disconnect.js`: người chơi thoát, socket chưa join đóng, chuyển chủ phòng và reset phòng không làm sập server.
 
 `ROUND_MS` và `FREEZE_MS` có thể rút ngắn để chạy test; mặc định thực tế 60000 và 7000.
 

@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/maze.js && node test/client.js && node test/smoke.js"
+    "test": "node test/maze.js && node test/client.js && node test/smoke.js && node test/disconnect.js"
   },
   "license": "MIT",
   "dependencies": {

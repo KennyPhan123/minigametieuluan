@@ -87,6 +87,7 @@ function makeElement(tag) {
   return el;
 }
 
+const drawnLabels = [];
 function makeCtx() {
   const gradient = { addColorStop() {} };
   const noop = () => {};
@@ -115,7 +116,7 @@ function makeCtx() {
     ellipse: noop,
     fill: noop,
     stroke: noop,
-    fillText: noop,
+    fillText: text => drawnLabels.push(text),
     createRadialGradient: () => gradient,
     measureText: (t) => ({ width: String(t).length * 6 }),
   };
@@ -264,7 +265,8 @@ async function main() {
   const ws = sockets[0];
   const roster = [
     {id:'host', name:'Teacher',score:0,spawned:false,totalCorrect:0},
-    {id:'me',name:'Tester',score:0,spawned:true,roundCorrect:false,totalCorrect:0,x:1.5,y:1.5}
+    {id:'me',name:'Tester',score:0,spawned:true,roundCorrect:false,totalCorrect:0,x:1.5,y:1.5},
+    {id:'other',name:'HiddenOpponent',score:0,spawned:true,totalCorrect:0,x:1.5,y:1.5}
   ];
   ws.feed({t:'init',id:'me',role:'player',hostId:'host',minPlayers:1,phase:'lobby',round:0,players:roster,serverNow:Date.now()});
   assert(els.startScreen.hidden);
@@ -272,6 +274,9 @@ async function main() {
   assert(els.startBtnLobby.hidden, 'player cannot start');
   const round = {t:'round', round:1,questionIdx:0,maze:['#######','#.....#','#.#.#.#','#.....#','#######'],treasure:{x:5.5,y:1.5},spawn:{x:1.5,y:1.5},endsAt:Date.now()+60000,serverNow:Date.now(),players:roster};
   ws.feed(round);
+  drawnLabels.length=0; pump(2);
+  assert(drawnLabels.includes('Tester'),'self remains visible');
+  assert(!drawnLabels.includes('HiddenOpponent'),'other players hidden even at same position');
   press('ArrowRight'); pump(10); release('ArrowRight'); pump(6);
   const stopped = ws.last('state').x;
   assert(stopped > 1.5 && stopped < 3, 'continuous, non-grid movement');
@@ -312,7 +317,9 @@ async function main() {
   // Host promotion during review must reveal controls.
   ws.feed({t:'room',phase:'review',hostId:'me',minPlayers:1,round:1,correctCount:1,players:roster.slice(1)});
   assert(!els.btnNextReview.hidden);
+  drawnLabels.length=0;
   ws.feed({...round, round:2, questionIdx:1}); pump(3);
+  assert(drawnLabels.includes('HiddenOpponent'),'host still sees participants');
   ws.feed({t:'roundEnd',phase:'classroom',round:2,questionIdx:1,correctCount:0,leaderboard:[]});
   assert(!els.classroomOverlay.hidden);
   assert(els.btnNextClass.hidden);

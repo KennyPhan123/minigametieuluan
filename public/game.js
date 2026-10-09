@@ -1428,13 +1428,13 @@
       ctx.fillRect(0, 0, w, h);
     }
 
-    // cac nguoi choi
+    // Only the host can see other participants on the map.
     for (const p of S.players.values()) {
+      if (S.role !== 'host') continue;
       if (p.id === S.myId || !p.spawned) continue;
       const sx = ox + p.x * s;
       const sy = oy + p.y * s;
       if (sx < -80 || sy < -80 || sx > w + 80 || sy > h + 80) continue;
-      if (fog && !visibleFromMe(p.x, p.y)) continue;
       drawPlayer(sx, sy, p, false, s);
     }
     // minh

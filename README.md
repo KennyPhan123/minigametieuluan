@@ -36,11 +36,15 @@ Mỗi người có mũi tên hướng rương, xoay theo vị trí hiện tại.
 
 ## Mê cung và thời gian
 
-Randomized Prim tạo nhiều nhánh ngắn; mở thêm khoảng 22% ngõ cụt để có đường vòng, vẫn giữ nhiều ngõ cụt. Qua 200 seed kiểm thử: trung bình 37,495 ngõ cụt; đường ngắn nhất dài nhất giữa cặp vị trí được chọn là 66 ô, tương đương 12 giây di chuyển ở tốc độ 5,5 ô/giây. Đây là đo đường tối ưu, không phải thời gian hoàn thành của người chơi; cần chơi thử thực tế để cân chỉnh độ khó.
+Mê cung dạng cây (perfect maze), sinh bằng growing-tree: ưu tiên kéo dài hành lang rồi rẽ nhánh. **Không mở đường nối vòng**: giữa spawn và rương chỉ có một đường đúng. Mọi nhánh sai nằm ngoài đường đúng đều là nhánh cụt, phải quay lại chỗ rẽ mới tiếp tục được.
+
+Bộ chọn spawn/rương còn yêu cầu trên đường đúng có **ít nhất 3 nhánh sai đi sâu từ 6 ô**, trong đó ít nhất một nhánh sâu từ 8 ô. Độ dài đường đúng vẫn giới hạn 30–70 ô để giữ vòng chơi 60 giây. Qua 200 seed kiểm thử: trung bình 31,77 ngõ cụt; đường đúng dài nhất được chọn là 70 ô, tương đương 12,7 giây di chuyển thuần ở tốc độ 5,5 ô/giây. Thời gian tìm đường và quay lại từ nhánh sai chưa nằm trong phép đo này; cần chơi thử để cân chỉnh độ khó.
+
+Joystick, tốc độ, kích thước map, camera, điểm số và mũi tên hướng rương không thay đổi. Mũi tên chỉ phương hướng chứ không biết nhánh nào đúng.
 
 ## Kiểm thử
 
-- `test/maze.js`: 200 seed, liên thông, viền kín, ngõ cụt, đường vòng và vị trí spawn/rương ngẫu nhiên có khoảng cách phù hợp.
+- `test/maze.js`: 200 seed, liên thông, viền kín, ngõ cụt, đồ thị không có chu trình, các nhánh sai đủ sâu và vị trí spawn/rương ngẫu nhiên có khoảng cách phù hợp.
 - `test/client.js`: DOM/Canvas mô phỏng, phòng chờ, di chuyển tự do, dừng khi thả phím/tay, va chạm tường, joystick, ẩn đối thủ với người chơi nhưng hiện với chủ phòng, mũi tên đúng bốn hướng, gợi ý cá nhân, đóng băng, review, chuyển chủ phòng, câu hỏi lớp và bảng cuối.
 - `test/smoke.js`: server thật với nhiều WebSocket; quyền chủ phòng, chặn nhảy thẳng tới rương, người tới đầu, freeze, đúng 5 người kết thúc sớm, thay mê cung, 10 vòng hết giờ, bắt buộc chọn câu hỏi lớp rồi mới qua màn.
 

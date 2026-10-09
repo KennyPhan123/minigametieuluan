@@ -1,8 +1,7 @@
 'use strict';
 
-/* Maze generation: randomized Prim (branchy, lots of dead ends) plus light
- * braiding (open a fraction of dead ends => loops, multiple routes).
- * The result is NOT a single-winding-path maze: many branches, many cul-de-sacs.
+/* Perfect maze: a connected tree, no loops or reconnecting wrong branches.
+ * Growing-tree generation mixes depth-first runs with randomized branching.
  */
 
 function mulberry32(seed) {
@@ -56,38 +55,24 @@ function generateMaze(cols, rows, rng) {
   const visited = [];
   for (let r = 0; r < rows; r++) visited.push(new Array(cols).fill(false));
 
-  // --- randomized Prim: bushy tree with many short branches ---
-  const startC = Math.floor(rng() * cols);
-  const startR = Math.floor(rng() * rows);
+  // Prefer extending the latest corridor, occasionally branch from an older cell.
+  const startC = Math.floor(rng() * cols), startR = Math.floor(rng() * rows);
+  const active = [[startC, startR]];
   visited[startR][startC] = true;
   grid[2 * startR + 1][2 * startC + 1] = 0;
-
-  const frontier = [];
-  const addEdges = (c, r) => {
-    for (const [dc, dr] of DIRS4) {
-      const nc = c + dc;
-      const nr = r + dr;
-      if (nc >= 0 && nc < cols && nr >= 0 && nr < rows && !visited[nr][nc]) {
-        frontier.push([c, r, nc, nr]);
-      }
-    }
-  };
-  addEdges(startC, startR);
-
-  while (frontier.length) {
-    const i = Math.floor(rng() * frontier.length);
-    const edge = frontier[i];
-    frontier[i] = frontier[frontier.length - 1];
-    frontier.pop();
-    const [ca, ra, cb, rb] = edge;
-    if (visited[rb][cb]) continue;
-    carveBetween(grid, ca, ra, cb, rb);
-    grid[2 * rb + 1][2 * cb + 1] = 0;
-    visited[rb][cb] = true;
-    addEdges(cb, rb);
+  while (active.length) {
+    const i = rng() < 0.7 ? active.length - 1 : Math.floor(rng() * active.length);
+    const [c, r] = active[i];
+    const neighbors = DIRS4.map(([dc,dr]) => [c+dc,r+dr]).filter(([nc,nr]) =>
+      nc>=0 && nc<cols && nr>=0 && nr<rows && !visited[nr][nc]);
+    if (!neighbors.length) { active.splice(i,1); continue; }
+    const [nc,nr] = neighbors[Math.floor(rng()*neighbors.length)];
+    carveBetween(grid,c,r,nc,nr);
+    grid[2*nr+1][2*nc+1] = 0;
+    visited[nr][nc] = true;
+    active.push([nc,nr]);
   }
 
-  // --- braid: open one wall of a fraction of dead ends => loops ---
   const isOpenSide = (c, r, nc, nr) => {
     // wall tile between cell (c,r) and neighbour (nc,nr)
     if (nr === r) return grid[2 * r + 1][Math.min(c, nc) * 2 + 2] === 0;
@@ -104,37 +89,9 @@ function generateMaze(cols, rows, rng) {
     return open;
   };
 
-  const deadEnds = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (cellNeighbors(c, r) === 1) deadEnds.push([c, r]);
-    }
-  }
-
-  shuffle(deadEnds, rng);
-  const target = Math.max(2, Math.floor(deadEnds.length * 0.22));
-  let braided = 0;
-  for (const [c, r] of deadEnds) {
-    if (braided >= target) break;
-  const closed = [];
-      for (const [dc, dr] of DIRS4) {
-        const nc = c + dc;
-        const nr = r + dr;
-        if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
-        if (!isOpenSide(c, r, nc, nr)) closed.push([nc, nr]);
-      }
-    if (!closed.length) continue;
-    const [nc, nr] = closed[Math.floor(rng() * closed.length)];
-    carveBetween(grid, c, r, nc, nr);
-    braided++;
-  }
-
-  // recount dead ends after braiding
   let deadEndsAfter = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (cellNeighbors(c, r) === 1) deadEndsAfter++;
-    }
+  for (let r=0;r<rows;r++) for(let c=0;c<cols;c++) {
+    if(cellNeighbors(c,r)===1) deadEndsAfter++;
   }
 
   // passages = cell tiles (always open) + carved wall tiles (tree edges).
@@ -144,7 +101,7 @@ function generateMaze(cols, rows, rng) {
   carvedEdges -= cols * rows; // remove cell tiles
   const cycles = carvedEdges - (cols * rows - 1);
 
-  return { grid, W, H, stats: { deadEnds: deadEndsAfter, braided, cycles } };
+  return { grid, W, H, stats: { deadEnds: deadEndsAfter, braided: 0, cycles } };
 }
 
 /** All cell centers on the border ring of the cell grid. */
@@ -192,12 +149,42 @@ function pickRoundPositions(grid, rng) {
         queue.push({ x, y });
       }
     }
-    const choices = cells.filter(p => Math.hypot(p.x-goal.x, p.y-goal.y) >= 12 &&
+    const distant = cells.filter(p => Math.hypot(p.x-goal.x, p.y-goal.y) >= 12 &&
       distance[p.y][p.x] >= 30 && distance[p.y][p.x] <= 70);
+    // Reject easy routes: require at least three substantial wrong turns.
+    const choices = distant.map(start => {
+      const path = [start];
+      let current = start;
+      while (distance[current.y][current.x] > 0) {
+        current = DIRS4.map(([dx,dy]) => ({x:current.x+dx,y:current.y+dy}))
+          .find(p => distance[p.y]?.[p.x] === distance[current.y][current.x]-1);
+        path.push(current);
+      }
+      const pathKeys = new Set(path.map(p => p.x+','+p.y));
+      let wrongBranches = 0, deepestTrap = 0;
+      for (const p of path.slice(0,-1)) for (const [dx,dy] of DIRS4) {
+        const branch = {x:p.x+dx,y:p.y+dy,d:1};
+        if (grid[branch.y]?.[branch.x]!==0 || pathKeys.has(branch.x+','+branch.y)) continue;
+        const seen = new Set(pathKeys), queue=[branch];
+        seen.add(branch.x+','+branch.y);
+        let depth=0;
+        for (let i=0;i<queue.length;i++) {
+          const b=queue[i]; depth=Math.max(depth,b.d);
+          for (const [dx,dy] of DIRS4) {
+            const x=b.x+dx,y=b.y+dy,key=x+','+y;
+            if(grid[y]?.[x]!==0 || seen.has(key)) continue;
+            seen.add(key); queue.push({x,y,d:b.d+1});
+          }
+        }
+        if (depth>=6) wrongBranches++;
+        deepestTrap=Math.max(deepestTrap,depth);
+      }
+      return {...start,wrongBranches,deepestTrap};
+    }).filter(p=>p.wrongBranches>=3 && p.deepestTrap>=8);
     if (choices.length) {
       const start = choices[Math.floor(rng() * choices.length)];
       return { spawn: {x:start.x+0.5,y:start.y+0.5},
-        treasure: {x:goal.x+0.5,y:goal.y+0.5}, routeLength:distance[start.y][start.x] };
+        treasure: {x:goal.x+0.5,y:goal.y+0.5}, routeLength:distance[start.y][start.x], wrongBranches:start.wrongBranches, deepestTrap:start.deepestTrap };
     }
   }
   throw new Error('Maze cannot provide sufficiently separated round positions');

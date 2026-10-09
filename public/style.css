@@ -95,36 +95,6 @@ input {
   margin: 18px 0;
 }
 
-.start-desc {
-  margin: 0 0 16px;
-  font-size: 14.5px;
-  line-height: 1.55;
-  color: #333;
-}
-
-.start-how {
-  list-style: none;
-  margin: 0 0 20px;
-  padding: 0;
-  display: grid;
-  gap: 9px;
-}
-
-.start-how li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 13.5px;
-  color: #222;
-  line-height: 1.45;
-}
-
-.start-how .num {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-}
-
 #startForm {
   display: grid;
   gap: 10px;
@@ -180,14 +150,6 @@ input {
   border-radius: 9px;
   padding: 9px 10px;
   background: repeating-linear-gradient(-45deg, #fff, #fff 7px, #ececec 7px, #ececec 14px);
-}
-
-.start-hint {
-  margin-top: 16px;
-  font-size: 11.5px;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.5;
 }
 
 /* ============================== LOBBY ============================== */

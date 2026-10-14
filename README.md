@@ -16,8 +16,9 @@ Server lắng nghe `0.0.0.0`, cổng mặc định 3000 (đổi bằng `PORT`). 
 1. Người vào đầu tiên là chủ phòng, không tham gia thi đấu. Những người sau nhập tên và vào phòng chờ.
 2. Khi có ít nhất 2 người chơi (không tính chủ phòng), chủ phòng bấm bắt đầu.
 3. Mỗi vòng 60 giây, mê cung mới 31 × 23 ô, rương và một điểm xuất phát chung được chọn ngẫu nhiên lại mỗi vòng. Tất cả người chơi có cùng vị trí xuất phát. Hai vị trí cách nhau ít nhất 12 ô theo đường thẳng, và 30–70 ô theo đường đi ngắn nhất.
-4. Di chuyển tự do: chạm và kéo joystick trên điện thoại, hoặc giữ WASD/phím mũi tên trên máy tính; thả tay/phím là dừng ngay. Có thể đổi hướng và đi chéo, có va chạm trượt dọc tường. Camera người chơi zoom gần, chỉ thấy rõ trong bán kính 2,5 ô và bị che hoàn toàn từ 4,5 ô; rương hiện khi nằm trong bán kính 4,5 ô, kể cả khi có tường chắn. Mỗi người chỉ thấy nhân vật của mình, không thấy nhân vật người khác dù đứng cùng chỗ; chủ phòng thấy toàn bộ bản đồ, trạng thái đúng/sai/đóng băng và bảng dẫn đầu.
-Mỗi người có mũi tên hướng rương quay quanh nhân vật, luôn chỉ về phía rương. Đây là hướng thẳng tới rương, không phải chỉ dẫn đường đi hoặc hướng rẽ; chủ phòng vẫn xem toàn bộ bản đồ.
+4. Di chuyển tự do: chạm và kéo joystick trên điện thoại, hoặc giữ WASD/phím mũi tên trên máy tính; thả tay/phím là dừng ngay. Có thể đổi hướng và đi chéo, có va chạm trượt dọc tường. Camera người chơi zoom gần, chỉ thấy rõ trong bán kính 2,5 ô và bị che hoàn toàn từ 4,5 ô; rương hiện khi nằm trong bán kính 4,5 ô, kể cả khi có tường chắn. Mỗi người chỉ thấy nhân vật của mình, không thấy nhân vật người khác dù đứng cùng chỗ; chủ phòng thấy toàn bộ bản đồ, vị trí tất cả người chơi, trạng thái đúng/sai/đóng băng và bảng dẫn đầu.
+**Chủ phòng không thấy rương** — vì màn hình chủ phòng thường được chiếu cho cả lớp. Server không gửi vị trí rương cho chủ phòng và client cũng không vẽ rương khi đang là chủ phòng, kể cả khi chủ phòng bị đổi giữa ván. Chủ phòng vẫn biết ai tới rương qua khung DIỄN BIẾN.
+Mỗi người chơi có mũi tên hướng rương quay quanh nhân vật, luôn chỉ về phía rương. Đây là hướng thẳng tới rương, không phải chỉ dẫn đường đi hoặc hướng rẽ.
 
 5. Chạm rương để trả lời. Người tới đầu tiên được điểm tìm rương và loại riêng hai trong ba đáp án sai (còn hai lựa chọn). Các người khác vẫn có đủ bốn lựa chọn.
 6. Trả lời sai: hiệu ứng rung, trừ điểm, khóa di chuyển/chọn đáp án trong 7 giây. Lựa chọn sai bị gạch riêng cho người đó. Trả lời đúng: thông báo và đứng chờ.
@@ -45,9 +46,10 @@ Joystick, tốc độ, kích thước map, camera, điểm số và mũi tên h�
 ## Kiểm thử
 
 - `test/maze.js`: 200 seed, liên thông, viền kín, ngõ cụt, đồ thị không có chu trình, các nhánh sai đủ sâu và vị trí spawn/rương ngẫu nhiên có khoảng cách phù hợp.
-- `test/client.js`: DOM/Canvas mô phỏng, phòng chờ, di chuyển tự do, dừng khi thả phím/tay, va chạm tường, joystick, ẩn đối thủ với người chơi nhưng hiện với chủ phòng, mũi tên đúng bốn hướng, gợi ý cá nhân, đóng băng, review, chuyển chủ phòng, câu hỏi lớp và bảng cuối.
+- `test/client.js`: DOM/Canvas mô phỏng, phòng chờ, di chuyển tự do, dừng khi thả phím/tay, va chạm tường, joystick, ẩn đối thủ với người chơi nhưng hiện với chủ phòng, chủ phòng không bao giờ vẽ rương, mũi tên đúng bốn hướng, gợi ý cá nhân, đóng băng, review, chuyển chủ phòng, câu hỏi lớp và bảng cuối.
 - `test/smoke.js`: server thật với nhiều WebSocket; quyền chủ phòng, chặn nhảy thẳng tới rương, người tới đầu, freeze, đúng 5 người kết thúc sớm, thay mê cung, 10 vòng hết giờ, bắt buộc chọn câu hỏi lớp rồi mới qua màn.
 - `test/disconnect.js`: người chơi thoát, socket chưa join đóng, chuyển chủ phòng và reset phòng không làm sập server.
+- `test/load.js` (không nằm trong `npm test`, chạy bằng `npm run load`): 1 chủ phòng + 50 người chơi cùng di chuyển ở nhịp thật 66ms/message; đo băng thông mỗi máy, CPU server và độ trễ vòng `/health`. Xem số đo và các điểm cần lưu ý trong `BAO-CAO-50-NGUOI-CHOI.md`.
 
 `ROUND_MS` và `FREEZE_MS` có thể rút ngắn để chạy test; mặc định thực tế 60000 và 7000.
 
@@ -56,5 +58,7 @@ Joystick, tốc độ, kích thước map, camera, điểm số và mũi tên h�
 - Người vào giữa vòng chờ vòng sau, không được nhảy vào thi đấu giữa chừng.
 - Chủ phòng rời đi: quyền điều hành chuyển cho người còn lại vào sớm nhất.
 - Kết nối lại hiện tạo lượt tham gia mới, **không khôi phục điểm cũ**. Không tải lại trang khi đang thi đấu. Điểm và phòng chỉ nằm trong bộ nhớ, khởi động lại server sẽ xóa ván.
+- Vị trí người chơi chỉ được gửi cho chủ phòng (người chơi không thấy nhau nên không cần). Nhờ vậy mỗi máy học sinh gần như không tải gì trong vòng đấu; xem số đo trong `BAO-CAO-50-NGUOI-CHOI.md`.
+- Trùng tên: người vào sau được thêm hậu tố ` 2`, ` 3`… để bảng điểm không lẫn người.
 - Server quyết định câu trả lời, thời gian, điểm và tiến trình vòng. Kiểm tra tốc độ/tường cơ bản cho vị trí client; không phải hệ thống chống gian lận hoàn chỉnh.
 - Đáp án đầy đủ nằm trong mã nguồn dự án; HTTP `/questions.js` chỉ trả nội dung câu hỏi và lựa chọn, không trả đáp án trước tổng kết.

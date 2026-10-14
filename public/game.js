@@ -1394,11 +1394,12 @@
       }
     }
 
-    // Treasure stays hidden outside player sight; host always sees it.
-    if (S.treasure && (!fog || visibleFromMe(S.treasure.x, S.treasure.y))) {
+    // Rương chỉ hiện với người chơi (trong tầm nhìn). Màn hình chủ phòng được
+    // chiếu cho cả lớp nên tuyệt đối không vẽ rương ở đó.
+    if (S.role !== 'host' && S.treasure && (!fog || visibleFromMe(S.treasure.x, S.treasure.y))) {
       const sx = ox + S.treasure.x * s;
       const sy = oy + S.treasure.y * s + Math.sin(now / 420) * s * 0.05;
-      const d = S.role === 'host' ? 0 : Math.hypot(S.treasure.x - me.x, S.treasure.y - me.y);
+      const d = Math.hypot(S.treasure.x - me.x, S.treasure.y - me.y);
       const pulse = d < 3 ? (Math.sin(now / 220) + 1) / 2 : 0;
       drawGem(sx, sy, s, pulse);
       if (S.treasureFound) {
@@ -1464,20 +1465,7 @@
       }
     }
 
-    // ruong o giua
-    if (S.treasure) {
-      const tx = offX + S.treasure.x * m;
-      const ty = offY + S.treasure.y * m;
-      mctx.beginPath();
-      mctx.arc(tx, ty, 3.4, 0, Math.PI * 2);
-      mctx.fillStyle = '#0a0a0a';
-      mctx.fill();
-      mctx.beginPath();
-      mctx.arc(tx, ty, 5.5, 0, Math.PI * 2);
-      mctx.lineWidth = 1.2;
-      mctx.strokeStyle = '#0a0a0a';
-      mctx.stroke();
-    }
+    // (không vẽ rương: bản đồ nhỏ chỉ hiện ở màn hình chủ phòng, đang chiếu cho lớp)
 
     for (const p of S.players.values()) {
       if (!p.spawned) continue;

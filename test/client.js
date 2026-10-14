@@ -345,6 +345,12 @@ async function main() {
   ws.feed({...round, round:2, questionIdx:1}); pump(3);
   assert(drawnLabels.includes('HiddenOpponent'),'host still sees participants');
   assert(els.treasureCompass.hidden,'host has full map, no personal compass');
+  // man hinh chu phong duoc chieu cho ca lop: khong bao gio ve ruong
+  ellipseCalls = 0; pump(2);
+  assert.equal(ellipseCalls, 0, 'host screen never draws the treasure');
+  ws.feed({...round, round:2, questionIdx:1, treasure:{x:1.5,y:1.5}}); ellipseCalls = 0; pump(3);
+  assert.equal(ellipseCalls, 0, 'host ignores a treasure position even if one is sent');
+  ws.feed({...round, round:2, questionIdx:1}); pump(1);
   ws.feed({t:'roundEnd',phase:'classroom',round:2,questionIdx:1,correctCount:0,leaderboard:[]});
   assert(!els.classroomOverlay.hidden);
   assert(els.btnNextClass.hidden);

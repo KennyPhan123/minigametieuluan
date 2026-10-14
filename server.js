@@ -192,11 +192,32 @@ function roomInfo() {
 }
 
 function send(ws, msg) {
-  if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+  if (ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
 }
 function broadcast(msg) {
-  for (const p of players.values()) send(p.ws, msg);
+  // stringify once: with a full class the same payload goes to dozens of sockets
+  const raw = JSON.stringify(msg);
+  for (const p of players.values()) if (p.ws.readyState === 1) p.ws.send(raw);
 }
+// Vi tri nguoi choi chi de chu phong ve ban do toan canh -> chi gui cho chu phong.
+// (Nguoi choi khong thay nhau du da doc duoc frame WebSocket.)
+function broadcastState(p) {
+  const host = players.get(room.hostId);
+  if (!host) return;
+  send(host.ws, { t: 'state', id: p.id, x: p.x, y: p.y, fx: p.fx, fy: p.fy });
+}
+// Lop dong: nhieu ban trung ten -> them hau to " 2", " 3"... cho de phan biet
+function uniqueName(base) {
+  const taken = new Set(Array.from(players.values(), (p) => p.name.toLocaleLowerCase('vi')));
+  if (!taken.has(base.toLocaleLowerCase('vi'))) return base;
+  for (let n = 2; n < 1000; n++) {
+    const suffix = ' ' + n;
+    const candidate = base.slice(0, Math.max(1, 16 - suffix.length)) + suffix;
+    if (!taken.has(candidate.toLocaleLowerCase('vi'))) return candidate;
+  }
+  return base;
+}
+
 function activeSpawnedCount() {
   let n = 0;
   for (const p of players.values()) if (p.spawned) n++;
@@ -280,7 +301,8 @@ function startRound(n) {
       round: room.round,
       questionIdx: room.questionIdx,
       maze: room.maze,
-      treasure: room.treasure,
+      // chu phong chieu man hinh cho ca lop -> khong nhan vi tri ruong
+      treasure: p.id === room.hostId ? undefined : room.treasure,
       spawn: { x: p.x, y: p.y },
       endsAt: room.endsAt,
       serverNow: Date.now(),
@@ -508,6 +530,7 @@ wss.on('connection', (ws) => {
       }
       let name = String(msg.name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16);
       if (!name) name = 'Nguoi choi ' + Math.floor(Math.random() * 900 + 100);
+      name = uniqueName(name);
       const p = newPlayer(id, name, ws);
       players.set(id, p);
       ws.playerId = id;
@@ -524,7 +547,7 @@ wss.on('connection', (ws) => {
         totalRounds: TOTAL_ROUNDS,
         maxCorrect: MAX_CORRECT,
         maze: room.maze,
-        treasure: room.treasure,
+        treasure: p.id === room.hostId ? undefined : room.treasure,
         questionIdx: room.questionIdx,
         eliminations: Array.from(p.eliminations),
         spawn: { x: p.x, y: p.y },
@@ -562,7 +585,7 @@ wss.on('connection', (ws) => {
         p.fx = fx / l;
         p.fy = fy / l;
       }
-      broadcast({ t: 'state', id: p.id, x: p.x, y: p.y, fx: p.fx, fy: p.fy });
+      broadcastState(p);
       return;
     }
 
